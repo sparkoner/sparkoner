@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <title>Despertar</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <main id="app" class="hidden">
+        <div class="shade shade-top"></div>
+        <div class="shade shade-bottom"></div>
+
+        <header class="header">
+            <div>
+                <div class="eyebrow">Supervivencia · Despertar</div>
+                <h1>¿Dónde quieres despertar?</h1>
+                <p class="subtitle">Elige una de tus camas o un punto seguro. La cámara te muestra dónde está.</p>
+            </div>
+            <div class="beds-count" id="beds-count"></div>
+        </header>
+
+        <section class="panel">
+            <div class="detail">
+                <div class="detail-image"><img id="detail-image" alt=""></div>
+                <div class="detail-info">
+                    <span class="chip" id="detail-kind"></span>
+                    <h2 id="detail-label"></h2>
+                    <div class="location" id="detail-location"></div>
+                    <p class="description" id="detail-description"></p>
+                </div>
+                <div class="detail-actions">
+                    <div class="counter" id="counter"></div>
+                    <button class="spawn" id="spawn">Despertar aquí <kbd>Enter</kbd></button>
+                </div>
+            </div>
+
+            <div class="strip">
+                <button class="nav" id="prev" aria-label="Anterior">&#8249;</button>
+                <div class="track" id="track"></div>
+                <button class="nav" id="next" aria-label="Siguiente">&#8250;</button>
+            </div>
+
+            <div class="hints"><kbd>&larr;</kbd><kbd>&rarr;</kbd> Elegir &nbsp;·&nbsp; <kbd>Enter</kbd> Despertar</div>
+        </section>
+    </main>
+    <script src="script.js"></script>
+</body>
+</html>
