@@ -223,6 +223,7 @@ StageHandlers.interact = {
             duration = st.def.duration or 10000,
             anim = st.def.anim,
             requiredItem = st.def.requiredItem,
+            distance = st.def.interactDistance or 3.0,
         }
     end,
     tick = function(m, st)
@@ -240,7 +241,7 @@ RegisterNetEvent('apoc_misiones:server:interactDone', function(instance)
     local m, st = GetStageFor(src, instance, 'interact')
     if not st or not st.point or st.done then return end
     local coords = GetPlayerCoords(src)
-    if not coords or Utils.Dist2D(coords, st.point) > 5.0 then return end
+    if not coords or Utils.Dist2D(coords, st.point) > (st.def.interactDistance or 3.0) + 2.0 then return end
 
     local itemName = st.def.requiredItem
     if itemName then
@@ -272,7 +273,7 @@ end
 local function CheckEscortFinished(m, st)
     if m.ended or m.stage ~= st or not st.spawned then return end
     if st.total - st.dead < st.minRescued then
-        return FailMission(m, 'Han muerto demasiados supervivientes.')
+        return FailMission(m, st.def.failMessage or 'Han muerto demasiados supervivientes.')
     end
     if st.rescued + st.dead >= st.total then
         m.rewardScale = st.rescued / st.total
@@ -288,6 +289,7 @@ StageHandlers.escort = {
         st.survivors = {}
         st.endPoint = RefugeCoords
         st.progress = 'Encuentra a los supervivientes'
+        st.client = { interactLabel = st.def.interactLabel or 'Rescatar superviviente' }
     end,
     tick = function(m, st)
         if not st.spawned then
@@ -296,7 +298,7 @@ StageHandlers.escort = {
             if not spawner then return end
             st.requesting = true
             RequestSpawn(m, spawner, 'survivors', {
-                count = st.total, center = st.center, radius = math.min(st.radius * 0.5, 15.0),
+                count = st.total, center = st.center, radius = math.min(st.radius * 0.5, 15.0), models = st.def.models,
             }, function(results)
                 st.requesting = false
                 if not results or m.ended or m.stage ~= st then return end
@@ -380,6 +382,7 @@ StageHandlers.defend = {
         st.duration = st.def.duration or 180
         st.radius = st.def.radius or 60.0
         st.progress = 'Llega a la zona para empezar'
+        st.client = { timerLabel = st.def.timerLabel or 'Resiste' }
     end,
     tick = function(m, st)
         local now = os.time()
@@ -387,16 +390,18 @@ StageHandlers.defend = {
 
         if not st.startedAt then
             if not inZone then return end
+            -- prepTime: segundos para prepararse antes de la primera oleada
+            local prep = st.def.prepTime or 0
             st.startedAt = now
-            st.endsAt = now + st.duration
+            st.endsAt = now + prep + st.duration
             st.lastInZone = now
             if st.enemy then
                 st.enemy.active = true
-                st.enemy.nextWave = now + 5
+                st.enemy.nextWave = now + math.max(prep, 5)
             end
-            st.progress = 'Resiste hasta que termine la transmisión'
-            UpdateStage(m, { defendEndsIn = st.duration, progress = st.progress })
-            NotifyMembers(m, 'La transmisión ha empezado. ¡Se acerca la horda!', 'error', 7000)
+            st.progress = st.def.progressText or 'Resiste hasta que acabe el tiempo'
+            UpdateStage(m, { defendEndsIn = prep + st.duration, prepEndsIn = prep > 0 and prep or nil, progress = st.progress })
+            NotifyMembers(m, st.def.startMessage or '¡Se acerca la horda!', 'error', 7000)
             return
         end
 
@@ -406,10 +411,10 @@ StageHandlers.defend = {
         else
             local grace = st.def.leaveGrace or 30
             if now - st.lastInZone > grace then
-                return FailMission(m, 'Abandonasteis la zona y la transmisión se cortó.')
+                return FailMission(m, st.def.failMessage or 'Abandonasteis la zona que teníais que defender.')
             elseif not st.warned then
                 st.warned = true
-                NotifyMembers(m, ('¡Volved a la zona! La transmisión se cortará en %d segundos.'):format(grace), 'error', 7000)
+                NotifyMembers(m, ('¡Volved a la zona! Tenéis %d segundos o la misión fallará.'):format(grace), 'error', 7000)
             end
         end
 

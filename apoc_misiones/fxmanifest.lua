@@ -4,7 +4,7 @@ lua54 'yes'
 
 name 'apoc_misiones'
 description 'Misiones apocalípticas para QBCore: jugables en solitario o en grupo'
-version '1.0.0'
+version '1.1.0'
 
 shared_scripts {
     'config.lua',

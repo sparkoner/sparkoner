@@ -209,9 +209,14 @@ CreateThread(function()
                 y = y + 0.027
                 DrawHudText(st.progress, y, 0.4)
             end
-            if Mission.defendEnds then
+            local now = GetGameTimer()
+            if Mission.prepEnds and now < Mission.prepEnds then
                 y = y + 0.027
-                DrawHudText(('~r~Transmisión: %s'):format(Utils.FormatTime((Mission.defendEnds - GetGameTimer()) / 1000)), y, 0.4)
+                DrawHudText(('~o~La horda llega en: %s'):format(Utils.FormatTime((Mission.prepEnds - now) / 1000)), y, 0.4)
+            elseif Mission.defendEnds then
+                y = y + 0.027
+                local label = st.client and st.client.timerLabel or 'Resiste'
+                DrawHudText(('~r~%s: %s'):format(label, Utils.FormatTime((Mission.defendEnds - now) / 1000)), y, 0.4)
             end
             y = y + 0.027
             DrawHudText(('Tiempo restante: %s'):format(Utils.FormatTime((Mission.deadline - GetGameTimer()) / 1000)), y, 0.35)
@@ -310,7 +315,7 @@ local function OpenMissionMenu()
             menu[#menu + 1] = {
                 header = 'Abandonar misión',
                 txt = 'Sales de la misión actual sin recompensa.',
-                icon = 'fas fa-person-running',
+                icon = 'fas fa-running',
                 params = { event = 'apoc_misiones:client:abandon' },
             }
         end
@@ -336,7 +341,7 @@ local function OpenMissionMenu()
                 params = { event = 'apoc_misiones:client:selectMission', args = { id = ms.id } },
             }
         end
-        menu[#menu + 1] = { header = 'Cerrar', icon = 'fas fa-xmark', params = { event = 'qb-menu:client:closeMenu' } }
+        menu[#menu + 1] = { header = 'Cerrar', icon = 'fas fa-times', params = { event = 'qb-menu:client:closeMenu' } }
         exports['qb-menu']:openMenu(menu)
     end)
 end

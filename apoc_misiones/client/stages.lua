@@ -68,7 +68,10 @@ function ExitCurrentStage()
     for id in pairs(stageInteractions) do Interact.Remove(id) end
     for key in pairs(stageBlips) do RemoveStageBlip(key) end
     stageProps, stageInteractions, stageBlips = {}, {}, {}
-    if Mission then Mission.defendEnds = nil end
+    if Mission then
+        Mission.defendEnds = nil
+        Mission.prepEnds = nil
+    end
 end
 
 -- =====================================================================
@@ -120,7 +123,7 @@ local function SetupInteractPoint(st)
     SpawnLocalProp('interact', c.prop, c.point)
     AddStageInteraction('interact', {
         coords = c.point,
-        distance = 3.0,
+        distance = c.distance or 3.0,
         label = c.label,
         marker = true,
         onUse = function()
@@ -154,7 +157,7 @@ local function AddSurvivorInteraction(net)
     AddStageInteraction('surv' .. net, {
         net = net,
         distance = 2.5,
-        label = 'Rescatar superviviente',
+        label = Mission.stage.client.interactLabel or 'Rescatar superviviente',
         canUse = function(ent) return ent and not IsPedDeadOrDying(ent, true) end,
         onUse = function()
             TriggerServerEvent('apoc_misiones:server:survivorFollow', Mission.instance, net)
@@ -207,5 +210,6 @@ ClientStages.escort = {
 ClientStages.defend = {
     update = function(st, data)
         if data.defendEndsIn then Mission.defendEnds = GetGameTimer() + data.defendEndsIn * 1000 end
+        if data.prepEndsIn then Mission.prepEnds = GetGameTimer() + data.prepEndsIn * 1000 end
     end,
 }

@@ -16,6 +16,17 @@ function LoadModel(model)
     return hash
 end
 
+-- Carga un modelo al azar de la lista; si alguno no existe prueba con los demás
+function LoadRandomModel(models)
+    if not models or #models == 0 then return nil end
+    local start = math.random(#models)
+    for i = 0, #models - 1 do
+        local hash = LoadModel(models[(start + i - 1) % #models + 1])
+        if hash then return hash end
+    end
+    return nil
+end
+
 local function LoadAnimSet(set)
     RequestAnimSet(set)
     local timeout = GetGameTimer() + 3000
@@ -68,7 +79,7 @@ local function ApplyInfectedStyle(ped, pool)
     SetPedConfigFlag(ped, 281, true) -- sin animación de agonía en el suelo
     SetPedCanEvasiveDive(ped, false)
     SetPedCanRagdollFromPlayerImpact(ped, false)
-    SetPedSuffersCriticalHits(ped, true) -- los disparos en la cabeza matan
+    SetPedSuffersCriticalHits(ped, pool.criticalHits ~= false) -- los disparos en la cabeza matan
     DisablePedPainAudio(ped, true)
     StopPedSpeaking(ped, true)
     ApplyPedDamagePack(ped, 'BigHitByVehicle', 0.0, 9.0)
@@ -94,7 +105,7 @@ end
 function SpawnEnemy(poolName, pos)
     local pool = Config.Enemies[poolName]
     if not pool then return nil end
-    local hash = LoadModel(pool.models[math.random(#pool.models)])
+    local hash = LoadRandomModel(pool.models) or LoadRandomModel(pool.fallbackModels)
     if not hash then return nil end
 
     local ped = CreatePed(4, hash, pos.x, pos.y, pos.z, math.random(0, 359) + 0.0, true, true)
@@ -178,7 +189,8 @@ function Spawners.survivors(p)
     local nets = {}
     for _ = 1, math.min(p.count or 1, 7) do
         local pos = RandomGroundPoint(p.center, 1.0, p.radius or 8.0)
-        local hash = LoadModel(cfg.models[math.random(#cfg.models)])
+        local models = (type(p.models) == 'table' and #p.models > 0) and p.models or cfg.models
+        local hash = LoadRandomModel(models)
         if hash then
             local ped = CreatePed(4, hash, pos.x, pos.y, pos.z, math.random(0, 359) + 0.0, true, true)
             SetModelAsNoLongerNeeded(hash)
@@ -217,7 +229,7 @@ function Spawners.ambush(p)
         local behind = GetOffsetFromEntityInWorldCoords(base, 0.0, -((p.distance or 120.0) + (v - 1) * 20.0), 0.0)
         local found, node, heading = GetClosestVehicleNodeWithHeading(behind.x, behind.y, behind.z, 1, 3.0, 0)
         if not found then node, heading = behind, GetEntityHeading(base) end
-        local hash = LoadModel(pool.vehicles[math.random(#pool.vehicles)])
+        local hash = LoadRandomModel(pool.vehicles)
         if hash then
             local veh = CreateVehicle(hash, node.x, node.y, node.z + 0.5, heading, true, true)
             SetModelAsNoLongerNeeded(hash)

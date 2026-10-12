@@ -1,16 +1,30 @@
 # apoc_misiones
 
-5 misiones apocalípticas para servidores **QBCore**. Se pueden hacer **en solitario o en grupo** (hasta 4 jugadores), y la dificultad y la recompensa se ajustan al tamaño del grupo.
+15 misiones apocalípticas para servidores **QBCore**. Se pueden hacer **en solitario o en grupo** (hasta 4 jugadores), y la dificultad y la recompensa se ajustan al tamaño del grupo.
 
 ## Misiones
 
-| # | Misión | Qué hay que hacer | Reputación necesaria |
-|---|--------|-------------------|----------------------|
-| 1 | **Suministros Médicos** | Ir a un hospital infestado, registrar cajas de suministros mientras atacan los infectados y volver al refugio. | 0 |
-| 2 | **Combustible para el Generador** | Recuperar un camión en una gasolinera vigilada por infectados y llevarlo al refugio. A mitad de camino, los saqueadores os tienden una emboscada en coche. Si destruyen el camión, la misión falla. | 0 |
-| 3 | **Purgar el Nido** | Eliminar una horda de infectados que va apareciendo por tandas y quemar el nido al final. | 0 |
-| 4 | **Rescate de Supervivientes** | Encontrar a un grupo de civiles rodeados de infectados, hacer que te sigan (`E`) y escoltarlos al refugio. Cada superviviente que muere reduce la recompensa, y si muere más de la mitad, la misión falla. | 10 |
-| 5 | **Señal de Socorro** | Reparar el generador de una antena de radio y resistir oleadas durante 3 minutos sin abandonar la zona. | 25 |
+Ordenadas por la reputación que piden, de más fácil a más difícil:
+
+| Misión | Qué hay que hacer | Reputación necesaria |
+|--------|-------------------|----------------------|
+| **Suministros Médicos** | Ir a un hospital infestado, registrar cajas de suministros mientras atacan los infectados y volver al refugio. | 0 |
+| **Combustible para el Generador** | Recuperar un camión en una gasolinera vigilada por infectados y llevarlo al refugio. A mitad de camino, los saqueadores os tienden una emboscada en coche. Si destruyen el camión, la misión falla. | 0 |
+| **Purgar el Nido** | Eliminar una horda de infectados que va apareciendo por tandas y quemar el nido al final. | 0 |
+| **Despensa Vacía** | Saquear comida en una tienda 24/7 infestada y volver al refugio. | 0 |
+| **Agua Potable** | Reparar una bomba de agua en un muelle, llenar bidones y llevarlos al refugio. | 0 |
+| **Chatarrería** | Rebuscar materiales (chatarra, acero, cobre...) en un desguace. Útil en servidores con crafteo. | 0 |
+| **Rescate de Supervivientes** | Encontrar a un grupo de civiles rodeados de infectados, hacer que te sigan (`E`) y escoltarlos al refugio. Cada superviviente que muere reduce la recompensa, y si muere más de la mitad, la misión falla. | 10 |
+| **Ambulancia de Campaña** | Recuperar una ambulancia abandonada en la carretera y llevarla al refugio. Por el camino, emboscada de saqueadores. | 10 |
+| **Saqueo de la Armería** | Saquear cajas de munición en una Ammu-Nation mientras una banda de saqueadores armados la defiende. | 15 |
+| **Campamento de Saqueadores** | Asaltar un campamento de saqueadores armados, recuperar el botín y volver. | 20 |
+| **Señal de Socorro** | Reparar el generador de una antena de radio y resistir oleadas durante 3 minutos sin abandonar la zona. | 25 |
+| **Helicóptero Derribado** | Eliminar a los saqueadores del lugar del accidente, recuperar la caja negra y volver al refugio. | 25 |
+| **Asedio al Refugio** | La horda ataca el propio refugio. Hay 30 segundos para prepararse y luego 4 minutos de oleadas. | 30 |
+| **El Doctor** | Escoltar a una doctora hasta el refugio. Si muere, la misión falla. | 35 |
+| **El Coloso** | Abrirse paso entre una horda y derribar a un infectado gigante con 3000 de vida al que no se mata de un tiro en la cabeza. | 50 |
+
+Durante el **Asedio al Refugio** los infectados aparecen alrededor del refugio, así que también pueden atacar a otros jugadores que estén por allí.
 
 Cada misión elige al azar una de sus ubicaciones libres, así que dos grupos nunca comparten la misma zona a la vez.
 
@@ -63,7 +77,7 @@ Además, cada participante cobra un **+10% de dinero por cada miembro extra** (`
 
 ## Reputación
 
-Cada misión completada suma reputación, que se guarda en los metadatos del personaje (`apoc_reputacion`) y por tanto persiste entre reinicios. Las misiones 4 y 5 piden reputación para desbloquearse. Si quieres que estén todas disponibles desde el principio, pon `minReputation = 0`. Para desactivar el sistema entero, usa `Config.Reputation.enabled = false`.
+Cada misión completada suma reputación, que se guarda en los metadatos del personaje (`apoc_reputacion`) y por tanto persiste entre reinicios. Las misiones más difíciles piden reputación para desbloquearse (ver la tabla de arriba). Si quieres que estén todas disponibles desde el principio, pon `minReputation = 0`. Para desactivar el sistema entero, usa `Config.Reputation.enabled = false`.
 
 ## Configuración
 
@@ -96,6 +110,27 @@ Cualquier etapa puede llevar `enemies` con uno de estos modos:
 - `ambush`: emboscada durante `deliver`.
 
 Copia una misión de `config.lua`, cámbiale el `id` y ajusta las etapas.
+
+**Opciones extra por tipo de etapa:**
+
+- `interact`
+  - `interactDistance`: distancia para interactuar con objetos grandes, como el helicóptero.
+  - `requiredItem` y `consumeItem`: exigir un objeto y, si quieres, gastarlo.
+- `escort`
+  - `models`: modelos propios para los supervivientes (por ejemplo, la doctora).
+  - `interactLabel`: texto de la interacción.
+  - `minRescuedRatio`: proporción mínima que hay que salvar.
+  - `failMessage`: mensaje si la misión falla.
+- `defend`
+  - `prepTime`: segundos de preparación antes de la primera oleada.
+  - `timerLabel`: texto del contador.
+  - `progressText`, `startMessage` y `failMessage`: mensajes de la etapa.
+
+**Tipos de enemigos** (`Config.Enemies`):
+
+- `infected`: infectados.
+- `raiders`: saqueadores armados.
+- `mutant`: el jefe. Admite `criticalHits = false` (no muere de un disparo en la cabeza) y `fallbackModels`.
 
 ## Exports (servidor)
 

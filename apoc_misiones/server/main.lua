@@ -19,6 +19,7 @@ for _, model in ipairs(Config.Survivors.models) do DeletableModels[GetHashKey(mo
 for _, def in ipairs(Config.Missions) do
     for _, stage in ipairs(def.stages) do
         if stage.model then DeletableModels[GetHashKey(stage.model)] = true end
+        for _, model in ipairs(stage.models or {}) do DeletableModels[GetHashKey(model)] = true end
     end
 end
 
