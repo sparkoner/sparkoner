@@ -1678,6 +1678,254 @@ return function(MB)
 		local sign = s:box({ name = "Cartel", size = { 5.4, 1, 0.2 }, pos = { 0, 3.8, 5 }, color = { 30, 30, 34 }, folder = "Decoracion" })
 		MB.sign(sign, "SUBWAY", { face = "Front", font = "GothamBlack", color = { 255, 255, 255 } })
 	end
+	-- =================================================================
+	--  Edificios en los que se puede entrar
+	-- =================================================================
+	-- Pared a lo largo de X local (de x0 a x1, centrada en z) con huecos { xa, xb, ya, yb } (y relativa a y0)
+	function P.wallWithHoles(g, x0, x1, z, y0, h, t, holes, color, mat)
+		local sorted = {}
+		for i, hole in ipairs(holes) do
+			sorted[i] = hole
+		end
+		table.sort(sorted, function(a, c)
+			return a[1] < c[1]
+		end)
+		local function piece(xa, xb, ya, yb)
+			if xb - xa > 0.01 and yb - ya > 0.01 then
+				g:box({ name = "Pared", size = { xb - xa, yb - ya, t }, pos = { (xa + xb) / 2, y0 + (ya + yb) / 2, z }, color = color, mat = mat or "Plaster" })
+			end
+		end
+		local cursor = x0
+		for _, hole in ipairs(sorted) do
+			piece(cursor, hole[1], 0, h)
+			piece(hole[1], hole[2], 0, hole[3])
+			piece(hole[1], hole[2], hole[4], h)
+			cursor = hole[2]
+		end
+		piece(cursor, x1, 0, h)
+	end
+
+	-- Igual, pero a lo largo de Z local (de z0 a z1, centrada en x); los huecos usan coordenadas Z
+	function P.wallWithHolesZ(g, z0, z1, x, y0, h, t, holes, color, mat)
+		P.wallWithHoles(g:at({ x, 0, 0 }, -90), z0, z1, 0, y0, h, t, holes, color, mat)
+	end
+
+	-- Casa de dos plantas con escalera interior, puertas y ventanas abiertas y balcón (fachada hacia -Z local).
+	-- o: w, d, color, trim, roofColor, floor, wallMat, furniture
+	function P.openHouse(g, pos, rotY, o)
+		local h = g:at(pos, rotY)
+		local W, D, FH, T = o.w or 26, o.d or 20, 9, 1
+		local wall = o.color or { 200, 200, 200 }
+		local trim = o.trim or { 245, 245, 240 }
+		local mat = o.wallMat or "Plaster"
+		local floorColor = o.floor or { 150, 110, 76 }
+		local front, back = -D / 2 + T / 2, D / 2 - T / 2
+		local function win(x, y)
+			return { x - 2, x + 2, (y or 0) + 3, (y or 0) + 6.5 }
+		end
+		h:box({ name = "Suelo", size = { W, 0.6, D }, pos = { 0, 0.3, 0 }, color = floorColor, mat = "WoodPlanks" })
+		-- Planta baja: puerta delantera, puerta trasera y ventanas
+		P.wallWithHoles(h, -W / 2, W / 2, front, 0, FH, T, { { -2, 2, 0, 7 }, win(-7), win(7) }, wall, mat)
+		P.wallWithHoles(h, -W / 2, W / 2, back, 0, FH, T, { win(-7), { 6, 10, 0, 7 } }, wall, mat)
+		for _, x in ipairs({ -W / 2 + T / 2, W / 2 - T / 2 }) do
+			P.wallWithHolesZ(h, -D / 2 + T, D / 2 - T, x, 0, FH, T, { { -3, 3, 3, 6.5 } }, wall, mat)
+		end
+		-- Escalera junto a la pared derecha (sube hacia +Z) y hueco en el suelo de arriba
+		local sx = W / 2 - T - 2.2
+		local z0 = -D / 2 + T + 1
+		P.stairs(h, { sx, 0.6, z0 }, 0, 9, 1, 1.3, 4, floorColor)
+		local hx = W / 2 - T - 4.4
+		local hz = z0 + 9 * 1.3
+		h:box({ name = "Piso", size = { hx + W / 2, 0.6, D }, pos = { (hx - W / 2) / 2, FH + 0.3, 0 }, color = floorColor, mat = "WoodPlanks" })
+		h:box({ name = "Piso", size = { W / 2 - hx, 0.6, D / 2 - hz }, pos = { (hx + W / 2) / 2, FH + 0.3, (hz + D / 2) / 2 }, color = floorColor, mat = "WoodPlanks" })
+		P.railing(h, { hx, FH + 0.6, -D / 2 + T }, { hx, FH + 0.6, hz }, 3, trim)
+		-- Planta alta: puerta al balcón y ventanas
+		P.wallWithHoles(h, -W / 2, W / 2, front, FH + 0.6, FH - 0.6, T, { { -2, 2, 0, 7 }, win(-7), win(7) }, wall, mat)
+		P.wallWithHoles(h, -W / 2, W / 2, back, FH + 0.6, FH - 0.6, T, { win(-7), win(7) }, wall, mat)
+		for _, x in ipairs({ -W / 2 + T / 2, W / 2 - T / 2 }) do
+			P.wallWithHolesZ(h, -D / 2 + T, D / 2 - T, x, FH + 0.6, FH - 0.6, T, { { -3, 3, 3, 6.5 } }, wall, mat)
+		end
+		-- Techo a dos aguas
+		local top = 2 * FH
+		h:box({ name = "Techo", size = { W, 0.6, D }, pos = { 0, top + 0.3, 0 }, color = trim, mat = "Concrete" })
+		local rc = o.roofColor or { 120, 70, 60 }
+		h:wedge({ name = "Tejado", size = { W + 1.6, 4, D / 2 + 1 }, pos = { 0, top + 2.6, -D / 4 - 0.5 }, color = rc, mat = "RoofShingles" })
+		h:wedge({ name = "Tejado", size = { W + 1.6, 4, D / 2 + 1 }, pos = { 0, top + 2.6, D / 4 + 0.5 }, rot = { 0, 180, 0 }, color = rc, mat = "RoofShingles" })
+		-- Molduras
+		for _, z in ipairs({ -D / 2 - 0.1, D / 2 + 0.1 }) do
+			h:box({ name = "Moldura", size = { W + 0.4, 0.6, 0.3 }, pos = { 0, FH + 0.3, z }, color = trim, folder = "Decoracion" })
+		end
+		for _, x in ipairs({ -W / 2, W / 2 }) do
+			for _, z in ipairs({ -D / 2, D / 2 }) do
+				h:box({ name = "Esquina", size = { 0.8, top, 0.8 }, pos = { x, top / 2, z }, color = trim, folder = "Decoracion" })
+			end
+		end
+		-- Porche con balcón encima
+		h:box({ name = "Balcon", size = { 12, 0.6, 4 }, pos = { 0, FH + 0.3, -D / 2 - 2 }, color = floorColor, mat = "WoodPlanks" })
+		P.railing(h, { -6, FH + 0.6, -D / 2 - 3.8 }, { 6, FH + 0.6, -D / 2 - 3.8 }, 3, trim)
+		for _, x in ipairs({ -5.6, 5.6 }) do
+			h:box({ name = "Columna", size = { 0.8, FH, 0.8 }, pos = { x, FH / 2, -D / 2 - 3.6 }, color = trim })
+		end
+		h:box({ name = "Escalon", size = { 6, 0.6, 2 }, pos = { 0, 0.3, -D / 2 - 1 }, color = { 180, 176, 170 }, mat = "Concrete" })
+		if o.furniture ~= false then
+			-- Sofá, mesa, cocina y nevera abajo; cama y cómoda arriba
+			h:box({ name = "Sofa", size = { 7, 2.2, 2.6 }, pos = { -6, 1.7, -3 }, color = o.sofa or { 170, 70, 60 }, mat = "Fabric" })
+			h:box({ name = "Respaldo", size = { 7, 2, 0.8 }, pos = { -6, 2.6, -1.9 }, color = o.sofa or { 170, 70, 60 }, mat = "Fabric" })
+			h:box({ name = "Mesa", size = { 4, 0.4, 3 }, pos = { -6, 2.6, 3 }, color = { 120, 80, 50 }, mat = "WoodPlanks" })
+			h:box({ name = "Patas", size = { 3.4, 2, 2.4 }, pos = { -6, 1.6, 3 }, color = { 100, 66, 42 }, mat = "WoodPlanks", transparency = 0.6, folder = "Decoracion" })
+			h:box({ name = "Cocina", size = { 8, 3.2, 2.4 }, pos = { 0, 2.2, D / 2 - T - 1.2 }, color = { 236, 236, 230 }, mat = "Marble" })
+			h:box({ name = "Nevera", size = { 2.6, 6, 2.4 }, pos = { -5.4, 3.6, D / 2 - T - 1.2 }, color = { 230, 230, 226 }, mat = "Metal" })
+			h:box({ name = "Cama", size = { 5, 1.6, 7 }, pos = { -7, FH + 1.4, 4 }, color = { 236, 230, 220 }, mat = "Fabric" })
+			h:box({ name = "Manta", size = { 5.1, 0.3, 4.4 }, pos = { -7, FH + 2.3, 5 }, color = o.sofa or { 170, 70, 60 }, mat = "Fabric", folder = "Decoracion" })
+			h:box({ name = "Comoda", size = { 5, 3.6, 2 }, pos = { 0, FH + 2.4, D / 2 - T - 1 }, color = { 140, 96, 60 }, mat = "WoodPlanks" })
+		end
+		local lamp = h:box({ name = "Lampara", size = { 2, 0.3, 2 }, pos = { -4, FH - 0.2, 0 }, color = { 255, 240, 214 }, mat = "Neon", folder = "Decoracion" })
+		MB.light(lamp, "Point", { color = { 255, 230, 200 }, brightness = 0.8, range = 16 })
+	end
+
+	-- =================================================================
+	--  Más vehículos, gente y feria
+	-- =================================================================
+	function P.bus(g, pos, rotY, color, text)
+		local u = g:at(pos, rotY)
+		local paint = color or { 246, 190, 30 }
+		local body = u:box({ name = "Autobus", size = { 8, 7, 30 }, pos = { 0, 5, 1 }, color = paint })
+		u:box({ name = "Capo", size = { 7.4, 3.4, 5 }, pos = { 0, 3.2, -16.4 }, color = paint })
+		u:box({ name = "Techo", size = { 7.6, 0.6, 29.6 }, pos = { 0, 8.8, 1 }, color = { 240, 240, 236 }, folder = "Decoracion" })
+		u:box({ name = "Franja", size = { 8.06, 0.5, 30 }, pos = { 0, 4.2, 1 }, color = { 30, 30, 30 }, folder = "Decoracion" })
+		for i = 0, 6 do
+			for _, side in ipairs({ -1, 1 }) do
+				u:box({ name = "Ventana", size = { 0.2, 2.4, 3 }, pos = { side * 4.02, 6.6, -10 + i * 3.8 }, color = { 50, 60, 76 }, mat = "Glass", folder = "Decoracion" })
+			end
+		end
+		u:box({ name = "Parabrisas", size = { 7, 3, 0.2 }, pos = { 0, 6.4, -14.05 }, color = { 50, 60, 76 }, mat = "Glass", folder = "Decoracion" })
+		u:box({ name = "Paragolpes", size = { 8.2, 1, 0.6 }, pos = { 0, 1.8, -19.1 }, color = { 40, 40, 44 }, mat = "Metal" })
+		for _, x in ipairs({ -2.6, 2.6 }) do
+			u:box({ name = "Faro", size = { 1.2, 0.8, 0.15 }, pos = { x, 3.4, -18.95 }, color = { 255, 244, 214 }, mat = "Neon", folder = "Decoracion" })
+		end
+		for _, w in ipairs({ { -3.6, -13 }, { 3.6, -13 }, { -3.6, 10 }, { 3.6, 10 } }) do
+			u:cylinder({ name = "Rueda", axis = "x", length = 1, diameter = 3, pos = { w[1], 1.5, w[2] }, color = { 28, 28, 30 }, mat = "Rubber" })
+		end
+		if text then
+			for _, face in ipairs({ "Left", "Right" }) do
+				MB.sign(body, text, { face = face, font = "GothamBlack", color = { 30, 30, 30 }, height = 0.22, width = 0.6 })
+			end
+		end
+		return body
+	end
+
+	-- Maniquí de pie (clothes = color de la ropa)
+	function P.mannequin(g, pos, rotY, clothes)
+		local m = g:at(pos, rotY)
+		local skin = { 236, 214, 190 }
+		local c = clothes or { 60, 110, 180 }
+		for _, x in ipairs({ -0.5, 0.5 }) do
+			m:box({ name = "Pierna", size = { 0.8, 3, 0.8 }, pos = { x, 1.5, 0 }, color = (c[1] + c[2] + c[3] > 400) and { 60, 60, 70 } or c, folder = "Decoracion" })
+			m:box({ name = "Brazo", size = { 0.6, 2.8, 0.6 }, pos = { x * 3.2, 4.4, 0 }, rot = { 0, 0, x * 16 }, color = skin, folder = "Decoracion" })
+		end
+		m:box({ name = "Torso", size = { 2.2, 2.8, 1.1 }, pos = { 0, 4.4, 0 }, color = c, mat = "Fabric" })
+		m:cylinder({ name = "Cuello", length = 0.5, diameter = 0.5, pos = { 0, 6, 0 }, color = skin, folder = "Decoracion" })
+		m:ball({ name = "Cabeza", diameter = 1.3, pos = { 0, 6.6, 0 }, color = skin, folder = "Decoracion" })
+	end
+
+	-- Noria (la rueda está en el plano XY local)
+	function P.ferrisWheel(g, pos, rotY, radius, rimColor)
+		local f = g:at(pos, rotY)
+		local r = radius or 24
+		local hub = r + 4
+		local steel = { 236, 236, 240 }
+		local neon = rimColor or { 255, 80, 160 }
+		local cabins = { { 230, 60, 60 }, { 250, 200, 60 }, { 60, 140, 230 }, { 80, 190, 110 } }
+		f:box({ name = "Base", size = { r * 1.3, 1.5, 9 }, pos = { 0, 0.75, 0 }, color = { 120, 120, 128 }, mat = "Concrete" })
+		for _, z in ipairs({ -3, 3 }) do
+			P.segment(f, { -r * 0.55, 1.5, z }, { 0, hub, z }, 1, steel, "Metal")
+			P.segment(f, { r * 0.55, 1.5, z }, { 0, hub, z }, 1, steel, "Metal")
+		end
+		local hubPart = f:cylinder({ name = "Eje", axis = "z", length = 7, diameter = 2.4, pos = { 0, hub, 0 }, color = { 80, 80, 90 }, mat = "Metal" })
+		MB.light(hubPart, "Point", { color = neon, brightness = 1.5, range = 30 })
+		local n = 24
+		for i = 0, n - 1 do
+			local a1, a2 = i / n * math.pi * 2, (i + 1) / n * math.pi * 2
+			for _, z in ipairs({ -2, 2 }) do
+				P.segment(f, { math.cos(a1) * r, hub + math.sin(a1) * r, z }, { math.cos(a2) * r, hub + math.sin(a2) * r, z }, 0.6, neon, "Neon", "Decoracion")
+			end
+			if i % 2 == 0 then
+				local cx, cy = math.cos(a1) * r, hub + math.sin(a1) * r
+				P.segment(f, { 0, hub, 0 }, { cx, cy, 0 }, 0.4, steel, "Metal", "Decoracion")
+				f:box({ name = "Cabina", size = { 2.6, 2.8, 3.4 }, pos = { cx, cy - 2.4, 0 }, color = cabins[(i / 2 % 4) + 1], folder = "Decoracion" })
+				f:box({ name = "Techo", size = { 3, 0.4, 3.8 }, pos = { cx, cy - 0.8, 0 }, color = steel, folder = "Decoracion" })
+			end
+		end
+	end
+
+	-- =================================================================
+	--  Oeste y zona militar
+	-- =================================================================
+	function P.hayBale(g, pos, rotY)
+		local h = g:at(pos, rotY)
+		h:box({ name = "Paja", size = { 4, 2.6, 2.6 }, pos = { 0, 1.3, 0 }, color = { 222, 190, 104 }, mat = "Grass" })
+		for _, x in ipairs({ -1, 1 }) do
+			h:box({ name = "Cuerda", size = { 0.2, 2.7, 2.7 }, pos = { x, 1.3, 0 }, color = { 150, 110, 60 }, folder = "Decoracion" })
+		end
+	end
+
+	-- Carreta con lona (larga a lo largo de Z local)
+	function P.wagon(g, pos, rotY, canvas)
+		local w = g:at(pos, rotY)
+		local wood = { 130, 88, 56 }
+		w:box({ name = "Caja", size = { 5.6, 2.4, 11 }, pos = { 0, 2.6, 0 }, color = wood, mat = "WoodPlanks" })
+		w:cylinder({ name = "Lona", axis = "z", length = 10, diameter = 5.4, pos = { 0, 4.2, 0 }, color = canvas or { 240, 232, 214 }, mat = "Fabric" })
+		for _, z in ipairs({ -3.5, 0, 3.5 }) do
+			w:cylinder({ name = "Aro", axis = "z", length = 0.3, diameter = 5.6, pos = { 0, 4.2, z }, color = { 110, 80, 52 }, folder = "Decoracion" })
+		end
+		for _, x in ipairs({ -3, 3 }) do
+			for _, z in ipairs({ -3.6, 3.6 }) do
+				w:cylinder({ name = "Rueda", axis = "x", length = 0.5, diameter = 4.2, pos = { x, 2.1, z }, color = { 90, 62, 40 }, mat = "Wood" })
+				w:cylinder({ name = "Buje", axis = "x", length = 0.6, diameter = 1, pos = { x, 2.1, z }, color = { 60, 50, 44 }, mat = "Metal", folder = "Decoracion" })
+			end
+		end
+		w:box({ name = "Lanza", size = { 0.5, 0.5, 6 }, pos = { 0, 1.6, -8.4 }, rot = { -8, 0, 0 }, color = wood, mat = "Wood", folder = "Decoracion" })
+	end
+
+	-- Muro de sacos terreros (largo a lo largo de X local)
+	function P.sandbags(g, pos, rotY, length, rows)
+		local s = g:at(pos, rotY)
+		local n = math.max(1, math.floor(length / 2.4))
+		for r = 0, (rows or 3) - 1 do
+			local offset = (r % 2 == 0) and 0 or 1.2
+			for i = 0, n - 1 - (r % 2) do
+				local x = -length / 2 + 1.2 + i * 2.4 + offset
+				s:box({ name = "Saco", size = { 2.3, 1, 1.5 }, pos = { x, 0.5 + r, 0 }, color = (i + r) % 3 == 0 and { 160, 140, 100 } or { 176, 156, 114 }, mat = "Fabric" })
+			end
+		end
+	end
+
+	-- Torre de vigilancia con escalera trepable y plataforma con barandilla
+	function P.watchTower(g, pos, rotY, height)
+		local t = g:at(pos, rotY)
+		local h = height or 16
+		local wood = { 120, 92, 64 }
+		for _, x in ipairs({ -3, 3 }) do
+			for _, z in ipairs({ -3, 3 }) do
+				t:box({ name = "Pata", size = { 1, h, 1 }, pos = { x, h / 2, z }, color = wood, mat = "Wood" })
+			end
+		end
+		t:box({ name = "Plataforma", size = { 8, 0.8, 8 }, pos = { 0, h + 0.4, 0 }, color = wood, mat = "WoodPlanks" })
+		for _, side in ipairs({ -1, 1 }) do
+			t:box({ name = "Peto", size = { 0.5, 3.4, 8 }, pos = { side * 3.75, h + 2.5, 0 }, color = wood, mat = "WoodPlanks" })
+			-- Lado de la escalera con hueco para entrar
+			t:box({ name = "Peto", size = { 2.6, 3.4, 0.5 }, pos = { side * 2.7, h + 2.5, 3.75 }, color = wood, mat = "WoodPlanks" })
+		end
+		t:box({ name = "Peto", size = { 8, 3.4, 0.5 }, pos = { 0, h + 2.5, -3.75 }, color = wood, mat = "WoodPlanks" })
+		t:box({ name = "Techo", size = { 9, 0.6, 9 }, pos = { 0, h + 7.5, 0 }, color = { 90, 70, 50 }, mat = "WoodPlanks", folder = "Decoracion" })
+		for _, x in ipairs({ -3.6, 3.6 }) do
+			for _, z in ipairs({ -3.6, 3.6 }) do
+				t:box({ name = "Poste", size = { 0.4, 3.6, 0.4 }, pos = { x, h + 5.6, z }, color = wood, mat = "Wood", folder = "Decoracion" })
+			end
+		end
+		local ladderH = math.floor((h + 2) / 2) * 2
+		t:truss({ name = "Escalera", size = { 2, ladderH, 2 }, pos = { 0, ladderH / 2, 5.2 }, color = { 100, 80, 60 } })
+	end
 end
 ]=]
 local FUENTES_MAPAS = {}
@@ -1880,6 +2128,488 @@ return function(b, MB)
 		atmosphere = { density = 0.32, color = { 112, 82, 162 }, decay = { 62, 42, 112 }, haze = 1.6, glare = 0 },
 		colorCorrection = { contrast = 0.12, saturation = 0.25, tint = { 236, 226, 255 } },
 		bloom = { intensity = 1, size = 32, threshold = 0.8 },
+	})
+end
+]=]
+FUENTES_MAPAS["Cargamento"] = [=[
+-- Cargamento (estilo Shipment de Call of Duty): patio de contenedores muy pequeño para duelos rápidos
+-- y caóticos, al amanecer con lluvia. Equipo A en -X, equipo B en +X.
+return function(b, MB)
+	local P = MB.Props
+	local FLOOR = { 112, 112, 116 }
+	local YELLOW = { 236, 190, 40 }
+	local COLORS = { { 176, 60, 46 }, { 46, 96, 150 }, { 70, 120, 80 }, { 200, 130, 40 }, { 120, 120, 128 }, { 150, 70, 110 } }
+
+	b.model:SetAttribute("Nombre", "Cargamento")
+
+	-- =================================================================
+	--  Puerto al fondo: agua, grúas y barco
+	-- =================================================================
+	b:box({ name = "Agua", size = { 900, 1, 900 }, pos = { 0, -3, 0 }, color = { 50, 80, 96 }, mat = "Glass", reflectance = 0.2, folder = "Decoracion" })
+	b:box({ name = "Muelle", size = { 260, 3, 200 }, pos = { 0, -1.5, 20 }, color = { 96, 96, 100 }, mat = "Concrete", folder = "Decoracion" })
+	for _, x in ipairs({ -90, -30, 30, 90 }) do
+		for _, z in ipairs({ 110, 140 }) do
+			b:box({ name = "Grua", size = { 3, 60, 3 }, pos = { x, 30, z }, color = { 210, 80, 50 }, mat = "Metal", folder = "Decoracion" })
+		end
+		b:box({ name = "Grua", size = { 4, 4, 90 }, pos = { x, 62, 120 }, color = { 210, 80, 50 }, mat = "Metal", folder = "Decoracion" })
+		b:box({ name = "Cabina", size = { 6, 5, 6 }, pos = { x, 57, 126 }, color = { 230, 230, 226 }, mat = "Metal", folder = "Decoracion" })
+	end
+	b:box({ name = "Barco", size = { 220, 18, 36 }, pos = { 0, 6, 150 }, color = { 40, 50, 66 }, mat = "Metal", folder = "Decoracion" })
+	b:box({ name = "Puente", size = { 24, 26, 30 }, pos = { 90, 28, 150 }, color = { 236, 236, 232 }, mat = "Metal", folder = "Decoracion" })
+
+	-- =================================================================
+	--  Suelo del patio y contenedor central
+	-- =================================================================
+	b:box({ name = "Suelo", size = { 76, 1, 64 }, pos = { 0, -0.5, 0 }, color = FLOOR, mat = "Concrete" })
+	for _, z in ipairs({ -14, 14 }) do
+		b:box({ name = "Linea", size = { 76, 0.12, 0.6 }, pos = { 0, 0.06, z }, color = YELLOW, folder = "Decoracion" })
+	end
+	P.container(b, { 0, 0, 0 }, 90, { 176, 60, 46 }, false, "CARGO 07")
+
+	b:symmetric(function(b)
+		-- Contenedores del patio (uno abierto se puede atravesar)
+		P.container(b, { -14, 0, -21 }, 0, COLORS[2], false, "NAVIERA")
+		P.container(b, { -14, 0, 21 }, 0, COLORS[3], true, "TUNEL")
+		P.container(b, { -25, 0, 0 }, 90, COLORS[4], false, "EXPORT")
+
+		-- Cobertura pequeña
+		P.crate(b, { -13, 0, -6 }, 4.5, 15)
+		P.crate(b, { -10, 0, 8 }, 4, -20)
+		P.crate(b, { -10, 4, 8 }, 3, 10)
+		P.drum(b, { -6, 0, -13 }, { 46, 96, 150 })
+		P.drum(b, { -3.6, 0, -12.2 }, { 200, 60, 50 })
+		P.pallet(b, { -18, 0, 12 }, 20)
+		P.cardboard(b, { -18, 0.6, 12 }, { 3, 2.4, 2.6 }, 20)
+		P.puddle(b, { -20, 0, -8 }, 5)
+		P.puddle(b, { -6, 0, 18 }, 4)
+		P.manhole(b, { -30, 0, -20 })
+
+		-- Muro de contenedores apilados alrededor (fuera de los límites)
+		for i, x in ipairs({ -31.5, -10.5 }) do
+			for _, z in ipairs({ -36.5, 36.5 }) do
+				P.container(b, { x, 0, z }, 0, COLORS[(i + (z > 0 and 2 or 0)) % 6 + 1], false)
+				P.container(b, { x + 6, 9, z }, 0, COLORS[(i + (z > 0 and 3 or 1)) % 6 + 1], false)
+			end
+		end
+		for i, z in ipairs({ -21, 0, 21 }) do
+			P.container(b, { -42.5, 0, z }, 90, COLORS[(i + 3) % 6 + 1], false)
+		end
+		for i, z in ipairs({ -10.5, 10.5 }) do
+			P.container(b, { -42.5, 9, z }, 90, COLORS[(i + 1) % 6 + 1], false)
+		end
+
+		-- Focos en las esquinas
+		P.floodLight(b, { -36, 0, -31 }, 45, 18)
+		P.floodLight(b, { -36, 0, 31 }, 135, 18)
+
+		for _, z in ipairs({ -5, 0, 5 }) do
+			b:spawn("A", { -33, 0.5, z }, -90)
+		end
+	end)
+
+	b:bounds(-37, 37, -31, 31, 30)
+
+	b:lighting({
+		technology = "Future",
+		lighting = {
+			ClockTime = 6.3,
+			Brightness = 1.4,
+			Ambient = { 92, 98, 112 },
+			OutdoorAmbient = { 120, 128, 146 },
+			ExposureCompensation = 0.3,
+			ShadowSoftness = 0.5,
+			EnvironmentDiffuseScale = 0.6,
+			EnvironmentSpecularScale = 0.7,
+		},
+		atmosphere = { density = 0.4, offset = 0.15, color = { 170, 180, 196 }, decay = { 100, 110, 130 }, glare = 0.3, haze = 2.4 },
+		colorCorrection = { contrast = 0.1, saturation = -0.1, tint = { 236, 242, 255 } },
+		clouds = { cover = 0.9, density = 0.75, color = { 170, 176, 190 } },
+		bloom = { intensity = 0.5, size = 24, threshold = 0.88 },
+		sunRays = { intensity = 0.04, spread = 0.4 },
+	})
+end
+]=]
+FUENTES_MAPAS["Ciudad"] = [=[
+-- Gran Ciudad: mapa inmenso para hasta 50 jugadores (25 contra 25). Cada equipo tiene una base
+-- con 25 spawns; entre las dos bases hay una ciudad con oficinas, tiendas, gasolinera, parque,
+-- casas en las que se puede entrar, una obra con pisos, un aparcamiento de dos plantas,
+-- una zona industrial, una gran plaza, el ayuntamiento y la estación de autobuses.
+-- Equipo A en -X, equipo B en +X.
+return function(b, MB)
+	local P = MB.Props
+	local SIDEWALK = { 170, 166, 160 }
+	local PLAZA = { 198, 192, 182 }
+	local LINE = { 236, 232, 220 }
+	local GRASS = { 108, 150, 76 }
+	local TREES = { { 86, 140, 66 }, { 100, 156, 74 }, { 76, 126, 60 } }
+	local OFFICES = {
+		{ h = 56, color = { 150, 166, 186 }, mat = "Concrete", trim = { 90, 100, 116 }, glass = { 90, 130, 170 } },
+		{ h = 44, color = { 206, 196, 180 }, mat = "Concrete", trim = { 140, 130, 116 }, glass = { 80, 110, 140 } },
+		{ h = 64, color = { 120, 130, 146 }, mat = "Concrete", trim = { 70, 76, 90 }, glass = { 110, 150, 190 } },
+		{ h = 38, color = { 176, 120, 96 }, mat = "Brick", trim = { 230, 224, 210 } },
+	}
+	local SHOPS = {
+		{ h = 16, color = { 236, 226, 206 }, trim = { 120, 90, 70 }, shop = "PIZZERÍA", shopColor = { 200, 50, 40 }, lit = true },
+		{ h = 18, color = { 160, 90, 70 }, mat = "Brick", trim = { 236, 230, 220 }, shop = "CAFÉ", shopColor = { 110, 70, 40 }, lit = true },
+		{ h = 14, color = { 120, 170, 200 }, trim = { 245, 245, 240 }, shop = "MODA", shopColor = { 210, 70, 140 }, lit = true },
+		{ h = 16, color = { 230, 200, 120 }, trim = { 120, 90, 50 }, shop = "FARMACIA", shopColor = { 40, 150, 80 }, lit = true },
+	}
+
+	b.model:SetAttribute("Nombre", "Gran Ciudad")
+	b.model:SetAttribute("Jugadores", 50)
+
+	local function copy(t)
+		local out = {}
+		for k, v in pairs(t) do
+			out[k] = v
+		end
+		return out
+	end
+
+	local function slab(x0, x1, z0, z1, color, mat)
+		return b:box({ name = "Manzana", size = { x1 - x0, 0.4, z1 - z0 }, pos = { (x0 + x1) / 2, 0.2, (z0 + z1) / 2 }, color = color or SIDEWALK, mat = mat or "Pavement" })
+	end
+
+	-- Edificios alrededor de una manzana, con un callejón en el centro de cada lado
+	local function perimeter(x0, x1, z0, z1, d, sides, styles)
+		local i = 0
+		local function row(a0, a1, place)
+			local mid = (a0 + a1) / 2
+			for _, seg in ipairs({ { a0, mid - 4 }, { mid + 4, a1 } }) do
+				i = i + 1
+				local o = copy(styles[(i - 1) % #styles + 1])
+				o.w, o.d = seg[2] - seg[1], d
+				place((seg[1] + seg[2]) / 2, o)
+			end
+		end
+		local zs, ze = z0 + (sides.S and d or 0), z1 - (sides.N and d or 0)
+		if sides.N then
+			row(x0, x1, function(c, o)
+				P.house(b, { c, 0.4, z1 - d / 2 }, 180, o)
+			end)
+		end
+		if sides.S then
+			row(x0, x1, function(c, o)
+				P.house(b, { c, 0.4, z0 + d / 2 }, 0, o)
+			end)
+		end
+		if sides.W then
+			row(zs, ze, function(c, o)
+				P.house(b, { x0 + d / 2, 0.4, c }, 90, o)
+			end)
+		end
+		if sides.E then
+			row(zs, ze, function(c, o)
+				P.house(b, { x1 - d / 2, 0.4, c }, -90, o)
+			end)
+		end
+	end
+
+	-- =================================================================
+	--  Suelo, calles y ciudad de fondo
+	-- =================================================================
+	b:box({ name = "Fondo", size = { 2000, 1, 2000 }, pos = { 0, -1.2, 0 }, color = { 120, 120, 118 }, mat = "Concrete", folder = "Decoracion" })
+	b:box({ name = "Asfalto", size = { 620, 1, 420 }, pos = { 0, -0.5, 0 }, color = { 68, 68, 72 }, mat = "Asphalt" })
+	for i = 0, 23 do
+		for _, side in ipairs({ -1, 1 }) do
+			local x = -345 + i * 30
+			local h = 60 + (i * 41 + (side > 0 and 0 or 23)) % 110
+			local w = 22 + (i % 3) * 6
+			b:box({ name = "Rascacielos", size = { w, h, w }, pos = { x, h / 2, side * (240 + (i % 2) * 26) }, color = (i % 3 == 0) and { 110, 130, 156 } or { 176, 170, 160 }, mat = (i % 3 == 0) and "Glass" or "Concrete", folder = "Decoracion" })
+		end
+	end
+	for i = 0, 7 do
+		for _, side in ipairs({ -1, 1 }) do
+			local h = 70 + (i * 37) % 90
+			b:box({ name = "Rascacielos", size = { 30, h, 34 }, pos = { side * (340 + (i % 2) * 24), h / 2, -175 + i * 50 }, color = (i % 2 == 0) and { 150, 160, 176 } or { 190, 182, 170 }, mat = "Concrete", folder = "Decoracion" })
+		end
+	end
+	-- Líneas de las avenidas (eje X) y de las calles (eje Z)
+	for _, z in ipairs({ -100, 0, 100 }) do
+		for x = -296, 296, 16 do
+			if z ~= 0 or math.abs(x) > 70 then
+				b:box({ name = "Linea", size = { 7, 0.12, 0.5 }, pos = { x, 0.06, z }, color = LINE, folder = "Decoracion" })
+			end
+		end
+	end
+
+	-- =================================================================
+	--  Centro: gran plaza, ayuntamiento y estación de autobuses
+	-- =================================================================
+	slab(-65, 65, -88, 88, PLAZA, "Pavement")
+	b:cylinder({ name = "Rosa", length = 0.1, diameter = 60, pos = { 0, 0.45, 0 }, color = { 176, 150, 120 }, mat = "Cobblestone", folder = "Decoracion" })
+	P.fountain(b, { 0, 0.4, 0 }, 10)
+	P.obelisk(b, { 0, 7.4, 0 }, 16, 2)
+
+	slab(-65, 65, 112, 196)
+	P.house(b, { 0, 0.4, 140 }, 0, { w = 90, h = 30, d = 40, color = { 236, 228, 210 }, mat = "Limestone", trim = { 180, 168, 150 }, floors = 3, cols = 12, door = false })
+	for x = -20, 20, 8 do
+		P.column(b, { x, 0.4, 116 }, 14, 2.2, { 240, 234, 220 }, "Limestone")
+	end
+	b:box({ name = "Friso", size = { 48, 2.4, 6 }, pos = { 0, 18.8, 117 }, color = { 230, 222, 204 }, mat = "Limestone" })
+	b:wedge({ name = "Fronton", size = { 48, 5, 3 }, pos = { 0, 22.5, 115.5 }, color = { 230, 222, 204 }, mat = "Limestone" })
+	b:cylinder({ name = "Tambor", length = 8, diameter = 18, pos = { 0, 34.4, 140 }, color = { 236, 228, 210 }, mat = "Limestone", folder = "Decoracion" })
+	b:ball({ name = "Cupula", diameter = 18, pos = { 0, 38.4, 140 }, color = { 90, 140, 120 }, mat = "Metal", folder = "Decoracion" })
+	local cityHall = b:box({ name = "Rotulo", size = { 30, 2.4, 0.3 }, pos = { 0, 26.5, 119.8 }, color = { 236, 228, 210 }, folder = "Decoracion" })
+	MB.sign(cityHall, "AYUNTAMIENTO", { font = "Garamond", color = { 90, 70, 50 } })
+
+	slab(-65, 65, -196, -112)
+	P.house(b, { 0, 0.4, -186 }, 180, { w = 110, h = 16, d = 20, color = { 200, 204, 210 }, mat = "Concrete", trim = { 60, 90, 140 }, floors = 2, shop = "ESTACIÓN DE AUTOBUSES", shopColor = { 40, 90, 160 }, lit = true })
+	b:box({ name = "Marquesina", size = { 104, 1, 44 }, pos = { 0, 12.5, -148 }, color = { 220, 224, 230 }, mat = "Metal" })
+
+	b:symmetric(function(b)
+		local mine = not b.mirrored
+
+		-- =============================================================
+		--  Base del equipo: muro con dos puertas, torres, tiendas y 25 spawns
+		-- =============================================================
+		slab(-300, -235, -196, 196, { 150, 146, 136 }, "Concrete")
+		local wallColor = { 120, 124, 112 }
+		P.wall(b, { -240, 0.4, 0 }, 90, { 80, 12, 2 }, wallColor)
+		P.wall(b, { -240, 0.4, -63 }, 90, { 14, 12, 2 }, wallColor)
+		P.wall(b, { -240, 0.4, 63 }, 90, { 14, 12, 2 }, wallColor)
+		P.wall(b, { -270, 0.4, -70 }, 0, { 60, 12, 2 }, wallColor)
+		P.wall(b, { -270, 0.4, 70 }, 0, { 60, 12, 2 }, wallColor)
+		P.poster(b, { -238.8, 8, 0 }, -90, { 30, 4 }, mine and { 50, 100, 200 } or { 200, 50, 50 }, mine and "BASE AZUL" or "BASE ROJA", { 255, 255, 255 }, "GothamBlack")
+		for _, z in ipairs({ -48, 48 }) do
+			P.sandbags(b, { -230, 0.4, z }, 90, 12, 3)
+		end
+		P.watchTower(b, { -248, 0.4, -62 }, 90, 16)
+		P.watchTower(b, { -248, 0.4, 62 }, 90, 16)
+		for _, z in ipairs({ -52, 52 }) do
+			b:wedge({ name = "Tienda", size = { 14, 6, 5 }, pos = { -288, 3.4, z - 2.5 }, color = { 92, 110, 70 }, mat = "Fabric" })
+			b:wedge({ name = "Tienda", size = { 14, 6, 5 }, pos = { -288, 3.4, z + 2.5 }, rot = { 0, 180, 0 }, color = { 92, 110, 70 }, mat = "Fabric" })
+		end
+		P.truck(b, { -262, 0.4, 44 }, 0, { 92, 110, 70 })
+		b:cylinder({ name = "Helipuerto", length = 0.1, diameter = 20, pos = { -272, 0.45, -48 }, color = { 60, 62, 66 }, mat = "Concrete", folder = "Decoracion" })
+		local pad = b:box({ name = "H", size = { 8, 0.1, 8 }, pos = { -272, 0.5, -48 }, color = { 60, 62, 66 }, transparency = 1, folder = "Decoracion" })
+		MB.sign(pad, "H", { face = "Top", font = "GothamBlack", color = { 245, 245, 240 } })
+		b:cylinder({ name = "Mastil", length = 20, diameter = 0.5, pos = { -297, 10.4, 0 }, color = { 200, 200, 206 }, mat = "Metal" })
+		b:box({ name = "Bandera", size = { 0.2, 4, 6 }, pos = { -297, 18, 3.2 }, color = mine and { 50, 100, 200 } or { 200, 50, 50 }, mat = "Fabric", folder = "Decoracion" })
+		for _, z in ipairs({ -36, 36 }) do
+			P.crate(b, { -262, 0.4, z }, 4, 0, { 90, 110, 70 })
+			P.crate(b, { -257, 0.4, z }, 4, 15, { 90, 110, 70 })
+		end
+		for _, x in ipairs({ -290, -282, -274, -266, -258 }) do
+			for _, z in ipairs({ -24, -12, 0, 12, 24 }) do
+				b:spawn("A", { x, 0.9, z }, -90)
+			end
+		end
+		-- Fuera de la base: contenedores y barreras
+		P.container(b, { -268, 0.4, -110 }, 0, { 46, 96, 150 }, false)
+		P.container(b, { -268, 0.4, 120 }, 0, { 176, 60, 46 }, true)
+		P.barrier(b, { -258, 0.4, -150 }, 90)
+		P.barrier(b, { -258, 0.4, 160 }, 90)
+
+		-- =============================================================
+		--  Oficinas (x -140..-85, z -196..-112)
+		-- =============================================================
+		slab(-140, -85, -196, -112)
+		perimeter(-140, -85, -196, -112, 18, { N = true, W = true, E = true }, OFFICES)
+		P.dumpster(b, { -112, 0.4, -170 }, 0, { 60, 110, 80 })
+		P.dumpster(b, { -112, 0.4, -186 }, 0, { 60, 110, 80 })
+		P.crate(b, { -116, 0.4, -150 }, 4)
+
+		-- =============================================================
+		--  Gasolinera (x -140..-85, z -88..-12)
+		-- =============================================================
+		slab(-140, -85, -88, -12)
+		for _, x in ipairs({ -126, -98 }) do
+			for _, z in ipairs({ -60, -40 }) do
+				b:box({ name = "Pilar", size = { 1.6, 11, 1.6 }, pos = { x, 5.9, z }, color = { 220, 220, 226 }, mat = "Metal" })
+			end
+		end
+		b:box({ name = "Marquesina", size = { 36, 1.6, 26 }, pos = { -112, 12.2, -50 }, color = { 236, 236, 240 }, mat = "Metal" })
+		local band = b:box({ name = "Franja", size = { 36.2, 1, 26.2 }, pos = { -112, 12.2, -50 }, color = { 200, 50, 50 }, folder = "Decoracion" })
+		MB.sign(band, "GAS 24H", { face = "Front", font = "GothamBlack" })
+		for _, x in ipairs({ -120, -112, -104 }) do
+			P.pump(b, { x, 0.4, -50 }, 0)
+		end
+		P.house(b, { -112, 0.4, -20 }, 180, { w = 30, h = 10, d = 14, color = { 236, 236, 230 }, trim = { 200, 50, 50 }, floors = 1, shop = "MINI MARKET", shopColor = { 200, 50, 50 }, lit = true })
+		P.pricePylon(b, { -90, 0.4, -80 }, -90, "GAS", { 200, 50, 50 })
+		P.car(b, { -116, 0.4, -64 }, 0, { 60, 120, 200 })
+		P.car(b, { -100, 0.4, -36 }, 180, { 230, 230, 226 })
+
+		-- =============================================================
+		--  Tiendas y mercadillo (x -140..-85, z 12..88)
+		-- =============================================================
+		slab(-140, -85, 12, 88)
+		perimeter(-140, -85, 12, 88, 14, { N = true, S = true }, SHOPS)
+		P.marketStall(b, { -124, 0.4, 44 }, 0, { 200, 60, 80 }, "FRUTA")
+		P.marketStall(b, { -100, 0.4, 56 }, 180, { 60, 140, 200 }, "FLORES", { { 240, 80, 120 }, { 250, 220, 80 }, { 160, 90, 220 } })
+		P.umbrellaTable(b, { -110, 0.4, 40 }, { 220, 80, 60 })
+		P.umbrellaTable(b, { -114, 0.4, 60 }, { 60, 150, 200 })
+		P.tree(b, { -132, 0.4, 50 }, 1, TREES)
+		P.tree(b, { -92, 0.4, 50 }, 1, TREES)
+
+		-- =============================================================
+		--  Parque con estanque y templete (x -140..-85, z 112..196)
+		-- =============================================================
+		slab(-140, -85, 112, 196, GRASS, "Grass")
+		b:cylinder({ name = "Estanque", length = 0.12, diameter = 26, pos = { -112, 0.46, 166 }, color = { 70, 140, 170 }, mat = "Glass", reflectance = 0.2, folder = "Decoracion" })
+		P.kiosk(b, { -122, 0.4, 132 }, 7, { 240, 240, 236 }, { 70, 110, 90 })
+		for i, t in ipairs({ { -134, 120 }, { -96, 124 }, { -132, 150 }, { -92, 146 }, { -134, 186 }, { -96, 188 }, { -112, 140 } }) do
+			P.tree(b, { t[1], 0.4, t[2] }, 1 + (i % 3) * 0.2, TREES)
+		end
+		for _, z in ipairs({ 130, 154, 180 }) do
+			P.bench(b, { -100, 0.4, z }, 90, { 120, 90, 60 })
+		end
+		for z = 116, 192, 6 do
+			P.bush(b, { -88, 0.4, z }, 0.9)
+		end
+
+		-- =============================================================
+		--  Zona industrial (x -215..-160, z -196..-112)
+		-- =============================================================
+		slab(-215, -160, -196, -112, { 140, 138, 134 }, "Concrete")
+		b:box({ name = "Nave", size = { 40, 20, 30 }, pos = { -192, 10.4, -176 }, color = { 176, 186, 196 }, mat = "Metal" })
+		b:box({ name = "Tejado", size = { 41, 1, 31 }, pos = { -192, 20.9, -176 }, color = { 120, 130, 140 }, mat = "CorrodedMetal" })
+		for _, x in ipairs({ -202, -182 }) do
+			b:box({ name = "Persiana", size = { 9, 10, 0.3 }, pos = { x, 5.4, -160.8 }, color = { 140, 146, 156 }, mat = "DiamondPlate", folder = "Decoracion" })
+		end
+		P.container(b, { -200, 0.4, -128 }, 0, { 176, 60, 46 }, false, "CARGA")
+		P.container(b, { -200, 9.4, -128 }, 0, { 46, 96, 150 }, false)
+		P.container(b, { -174, 0.4, -140 }, 90, { 70, 120, 80 }, true)
+		P.forklift(b, { -182, 0.4, -126 }, 90, { 240, 190, 40 })
+		P.pallet(b, { -166, 0.4, -122 }, 10)
+		P.drum(b, { -170, 0.4, -150 }, { 46, 96, 150 })
+		P.drum(b, { -167.6, 0.4, -151 }, { 200, 60, 50 })
+
+		-- =============================================================
+		--  Casas en las que se puede entrar (x -215..-160, z -88..-12)
+		-- =============================================================
+		slab(-215, -160, -88, -12, GRASS, "Grass")
+		P.openHouse(b, { -198, 0.4, -30 }, 180, { color = { 236, 214, 170 }, trim = { 250, 250, 246 }, roofColor = { 130, 70, 56 } })
+		P.openHouse(b, { -177, 0.4, -70 }, 0, { color = { 150, 190, 210 }, trim = { 250, 250, 246 }, roofColor = { 70, 80, 100 }, sofa = { 60, 110, 170 } })
+		P.woodFence(b, { -214, 0.4, -50 }, { -190, 0.4, -50 }, 4, { 244, 244, 238 })
+		P.car(b, { -170, 0.4, -36 }, 0, { 200, 60, 60 })
+		P.tree(b, { -208, 0.4, -76 }, 1.1, TREES)
+		P.tree(b, { -166, 0.4, -20 }, 1, TREES)
+
+		-- =============================================================
+		--  Obra con un edificio a medio construir (x -215..-160, z 12..88)
+		-- =============================================================
+		slab(-215, -160, 12, 88, { 150, 120, 90 }, "Ground")
+		b:box({ name = "Forjado", size = { 30, 0.8, 24 }, pos = { -195, 10.4, 40 }, color = { 176, 174, 168 }, mat = "Concrete" })
+		b:box({ name = "Forjado", size = { 22, 0.8, 24 }, pos = { -199, 20.4, 40 }, color = { 176, 174, 168 }, mat = "Concrete" })
+		for _, x in ipairs({ -209, -195, -181 }) do
+			for _, z in ipairs({ 29, 51 }) do
+				b:box({ name = "Pilar", size = { 1.6, 10, 1.6 }, pos = { x, 5.4, z }, color = { 186, 184, 178 }, mat = "Concrete" })
+				if x < -185 then
+					b:box({ name = "Pilar", size = { 1.6, 9.2, 1.6 }, pos = { x, 15.4, z }, color = { 186, 184, 178 }, mat = "Concrete" })
+				end
+			end
+		end
+		P.stairs(b, { -207, 0.4, 15 }, 0, 10, 1.04, 1.3, 4, { 170, 168, 162 })
+		P.stairs(b, { -186, 10.8, 51 }, 180, 10, 1, 1.3, 4, { 170, 168, 162 })
+		P.railing(b, { -210, 20.8, 52 }, { -188, 20.8, 52 }, 3, { 240, 190, 40 })
+		b:box({ name = "Grua", size = { 3, 64, 3 }, pos = { -170, 32.4, 76 }, color = { 240, 190, 40 }, mat = "Metal" })
+		b:box({ name = "Pluma", size = { 50, 2.4, 2.4 }, pos = { -180, 64, 76 }, color = { 240, 190, 40 }, mat = "Metal", folder = "Decoracion" })
+		b:box({ name = "Contrapeso", size = { 6, 4, 4 }, pos = { -150, 62, 76 }, color = { 120, 120, 126 }, mat = "Concrete", folder = "Decoracion" })
+		for i = 0, 2 do
+			b:cylinder({ name = "Tubo", axis = "x", length = 9, diameter = 4, pos = { -172, 2.4 + (i == 2 and 3.4 or 0), 22 + (i == 2 and 2.2 or i * 4.4) }, color = { 170, 168, 160 }, mat = "Concrete" })
+		end
+		for i = 0, 3 do
+			b:box({ name = "Viga", size = { 16, 0.8, 1 }, pos = { -196, 0.8 + i * 0.8, 70 + (i % 2) * 0.5 }, color = { 170, 70, 50 }, mat = "Metal" })
+		end
+		P.container(b, { -200, 0.4, 82 }, 0, { 240, 240, 236 }, false, "OBRA")
+		P.cone(b, { -166, 0.4, 40 })
+		P.cone(b, { -166, 0.4, 46 })
+		P.barrier(b, { -162, 0.4, 60 }, 90)
+
+		-- =============================================================
+		--  Aparcamiento de dos plantas con rampa (x -215..-160, z 112..196)
+		-- =============================================================
+		slab(-215, -160, 112, 196, { 150, 150, 150 }, "Concrete")
+		b:box({ name = "Planta", size = { 50, 1, 50 }, pos = { -187.5, 12, 160 }, color = { 160, 160, 160 }, mat = "Concrete" })
+		for _, x in ipairs({ -210, -187.5, -165 }) do
+			for _, z in ipairs({ 138, 160, 182 }) do
+				b:box({ name = "Pilar", size = { 2, 11.2, 2 }, pos = { x, 6, z }, color = { 186, 186, 186 }, mat = "Concrete" })
+			end
+		end
+		b:wedge({ name = "Rampa", size = { 10, 12, 22 }, pos = { -175, 6.4, 124 }, color = { 150, 150, 150 }, mat = "Concrete" })
+		P.wall(b, { -187.5, 12.5, 184.5 }, 0, { 50, 3, 1 }, { 200, 200, 196 })
+		P.wall(b, { -212, 12.5, 160 }, 90, { 50, 3, 1 }, { 200, 200, 196 })
+		P.wall(b, { -163, 12.5, 166 }, 90, { 38, 3, 1 }, { 200, 200, 196 })
+		P.wall(b, { -196, 12.5, 135.5 }, 0, { 32, 3, 1 }, { 200, 200, 196 })
+		P.car(b, { -200, 12.5, 170 }, 0, { 230, 230, 226 })
+		P.car(b, { -180, 12.5, 150 }, 180, { 40, 40, 46 })
+		P.car(b, { -200, 0.4, 150 }, 0, { 200, 160, 40 })
+		P.car(b, { -176, 0.4, 176 }, 180, { 120, 40, 40 })
+
+		-- =============================================================
+		--  Plaza: árboles, fuentes, bancos, quioscos y paradas de autobús
+		-- =============================================================
+		for z = -72, 72, 24 do
+			if math.abs(z) > 20 then
+				b:box({ name = "Alcorque", size = { 5, 0.8, 5 }, pos = { -54, 0.8, z }, color = { 170, 164, 154 }, mat = "Concrete" })
+				P.tree(b, { -54, 1.2, z }, 0.9, TREES)
+			end
+		end
+		P.fountain(b, { -32, 0.4, -54 }, 6)
+		P.fountain(b, { -32, 0.4, 54 }, 6)
+		P.planter(b, { -36, 0.4, -20 }, { 3, 12 }, 0)
+		P.planter(b, { -36, 0.4, 20 }, { 3, 12 }, 0)
+		P.bench(b, { -20, 0.4, -30 }, 0, { 120, 90, 60 })
+		P.bench(b, { -20, 0.4, 30 }, 180, { 120, 90, 60 })
+		P.newspaperBox(b, { -60, 0.4, -6 }, -90, { 40, 90, 170 })
+		P.marketStall(b, { -46, 0.4, -82 }, 0, { 230, 120, 40 }, "CHURROS")
+		P.hotdogCart(b, { -44, 0.4, 80 }, 180)
+		P.mannequin(b, { -14, 7.4, -48 }, 30, { 200, 170, 80 })
+		b:box({ name = "Pedestal", size = { 4, 7, 4 }, pos = { -14, 3.9, -48 }, color = { 200, 196, 186 }, mat = "Marble" })
+
+		-- =============================================================
+		--  Tráfico en las calles: coches, taxis, autobuses y barreras
+		-- =============================================================
+		P.taxi(b, { -150, 0, -40 }, 0)
+		P.car(b, { -75, 0, 30 }, 180, { 60, 120, 200 })
+		P.car(b, { -225, 0, 100 }, 0, { 90, 90, 96 })
+		P.taxi(b, { -190, 0, 104 }, 90)
+		P.car(b, { -120, 0, -96 }, 92, { 230, 230, 226 })
+		P.bus(b, { -100, 0, 4 }, 90, { 200, 50, 50 }, "LÍNEA 50")
+		P.truck(b, { -40, 0, -104 }, 90, { 236, 236, 232 })
+		P.car(b, { -170, 0, -4 }, 75, { 200, 160, 40 })
+		P.barrier(b, { -150, 0, 60 }, 0)
+		P.barrier(b, { -75, 0, -60 }, 0)
+		P.barrier(b, { -225, 0, -100 }, 90)
+		for _, p in ipairs({ { -150, 140 }, { -75, 150 }, { -225, 30 } }) do
+			P.cone(b, { p[1] - 3, 0, p[2] })
+			P.cone(b, { p[1] + 3, 0, p[2] })
+		end
+		for _, z in ipairs({ -36, -24 }) do
+			P.bus(b, { z, 0.4, -150 }, 0, { 240, 240, 236 }, "TERMINAL")
+		end
+		for x = -48, -8, 20 do
+			b:box({ name = "Pilar", size = { 1.4, 11.6, 1.4 }, pos = { x, 6.2, -128 }, color = { 200, 204, 210 }, mat = "Metal" })
+			b:box({ name = "Pilar", size = { 1.4, 11.6, 1.4 }, pos = { x, 6.2, -168 }, color = { 200, 204, 210 }, mat = "Metal" })
+		end
+
+		-- Farolas a lo largo de las avenidas
+		for _, x in ipairs({ -260, -190, -120, -45 }) do
+			P.streetLight(b, { x, 0.4, 87 }, 0, 18)
+			P.streetLight(b, { x + 30, 0.4, -87 }, 180, 18)
+		end
+	end)
+
+	b:bounds(-300, 300, -200, 200, 150)
+
+	b:lighting({
+		technology = "Future",
+		lighting = {
+			ClockTime = 15.2,
+			Brightness = 3,
+			Ambient = { 120, 118, 116 },
+			OutdoorAmbient = { 164, 160, 156 },
+			ExposureCompensation = 0,
+			ShadowSoftness = 0.2,
+			EnvironmentDiffuseScale = 0.6,
+			EnvironmentSpecularScale = 0.6,
+		},
+		atmosphere = { density = 0.3, offset = 0.05, color = { 214, 214, 220 }, decay = { 150, 156, 170 }, glare = 0.5, haze = 1.6 },
+		colorCorrection = { contrast = 0.08, saturation = 0.1, tint = { 255, 252, 246 } },
+		clouds = { cover = 0.45, density = 0.45, color = { 255, 255, 255 } },
+		bloom = { intensity = 0.3, size = 24, threshold = 0.95 },
+		sunRays = { intensity = 0.08, spread = 0.6 },
 	})
 end
 ]=]
@@ -2740,6 +3470,138 @@ return function(b, MB)
 	})
 end
 ]=]
+FUENTES_MAPAS["Muelle"] = [=[
+-- Muelle (estilo GTA V): muelle de madera sobre el mar al atardecer, con noria, tiovivo, puestos
+-- y la ciudad al fondo. Equipo A en -X, equipo B en +X.
+return function(b, MB)
+	local P = MB.Props
+	local DECK = 8
+	local WOOD = { 150, 116, 84 }
+	local WHITE = { 244, 242, 236 }
+	local PALMS = { { 260, 1.2 }, { 300, 1.4 } }
+
+	b.model:SetAttribute("Nombre", "Muelle")
+
+	-- =================================================================
+	--  Mar, playa, ciudad y colina con letrero
+	-- =================================================================
+	b:box({ name = "Mar", size = { 1600, 2, 1600 }, pos = { 0, 0, 0 }, color = { 40, 112, 150 }, mat = "Glass", reflectance = 0.25, folder = "Decoracion" })
+	b:box({ name = "Playa", size = { 1600, 4, 300 }, pos = { 0, 0, 230 }, color = { 232, 212, 160 }, mat = "Sand", folder = "Decoracion" })
+	for i = 0, 15 do
+		local x = -300 + i * 40
+		P.palmTree(b, { x, 2, 120 + (i % 2) * 18 }, PALMS[(i % 2) + 1][2])
+	end
+	for i = 0, 19 do
+		local x = -380 + i * 40
+		local h = 50 + (i * 53) % 120
+		local w = 26 + (i % 3) * 8
+		b:box({ name = "Edificio", size = { w, h, w }, pos = { x, 2 + h / 2, 300 + (i % 3) * 30 }, color = (i % 2 == 0) and { 220, 210, 196 } or { 120, 150, 176 }, mat = (i % 2 == 0) and "Concrete" or "Glass", folder = "Decoracion" })
+	end
+	b:ball({ name = "Colina", diameter = 360, pos = { -120, -40, 560 }, color = { 140, 140, 90 }, mat = "Grass", folder = "Decoracion" })
+	b:ball({ name = "Colina", diameter = 320, pos = { 180, -50, 580 }, color = { 130, 132, 86 }, mat = "Grass", folder = "Decoracion" })
+	for i, letter in ipairs({ "P", "L", "A", "Y", "A", " ", "D", "E", "L", " ", "S", "O", "L" }) do
+		if letter ~= " " then
+			local panel = b:box({ name = "Letra", size = { 9, 14, 1 }, pos = { -190 + i * 11, 118, 420 }, rot = { -12, 0, 0 }, color = WHITE, folder = "Decoracion" })
+			MB.sign(panel, letter, { font = "GothamBlack", color = { 40, 40, 40 }, bg = WHITE })
+		end
+	end
+
+	-- =================================================================
+	--  Tablero del muelle, pilotes, barandillas y zona de feria
+	-- =================================================================
+	b:box({ name = "Tablero", size = { 152, 1, 62 }, pos = { 0, DECK - 0.5, 0 }, color = WOOD, mat = "WoodPlanks" })
+	b:box({ name = "Feria", size = { 84, 1, 34 }, pos = { 0, DECK - 0.5, 47 }, color = WOOD, mat = "WoodPlanks", folder = "Decoracion" })
+	b:box({ name = "Pasarela", size = { 24, 1, 120 }, pos = { 0, DECK - 0.5, 120 }, color = WOOD, mat = "WoodPlanks", folder = "Decoracion" })
+	P.ferrisWheel(b, { 0, DECK, 38 }, 0, 24, { 255, 90, 170 })
+	local arch = b:box({ name = "Arco", size = { 26, 4, 1 }, pos = { 0, DECK + 14, 62 }, color = { 30, 30, 40 }, folder = "Decoracion" })
+	MB.sign(arch, "MUELLE DEL SOL", { font = "LuckiestGuy", color = { 255, 120, 200 }, glow = true })
+	for _, x in ipairs({ -12, 12 }) do
+		b:box({ name = "Poste", size = { 1, 14, 1 }, pos = { x, DECK + 7, 62 }, color = { 30, 30, 40 }, folder = "Decoracion" })
+	end
+
+	-- Tiovivo en el centro
+	b:cylinder({ name = "Plataforma", length = 1.2, diameter = 18, pos = { 0, DECK + 0.6, 0 }, color = { 240, 232, 220 }, mat = "WoodPlanks" })
+	b:cylinder({ name = "Columna", length = 10, diameter = 3, pos = { 0, DECK + 6, 0 }, color = { 230, 190, 80 }, mat = "Metal" })
+	for i, d in ipairs({ 21, 17, 12, 7, 2.6 }) do
+		b:cylinder({ name = "Toldo", length = 1, diameter = d, pos = { 0, DECK + 10.6 + i, 0 }, color = (i % 2 == 1) and { 220, 50, 60 } or WHITE, mat = "Fabric" })
+	end
+	local crown = b:ball({ name = "Remate", diameter = 1.6, pos = { 0, DECK + 16.6, 0 }, color = { 250, 210, 80 }, mat = "Neon", folder = "Decoracion" })
+	MB.light(crown, "Point", { color = { 255, 210, 140 }, brightness = 1.4, range = 24 })
+	for i = 0, 7 do
+		local a = math.rad(i * 45 + 22.5)
+		local x, z = math.cos(a) * 6.5, math.sin(a) * 6.5
+		b:cylinder({ name = "Barra", length = 10, diameter = 0.35, pos = { x, DECK + 6.2, z }, color = { 230, 190, 80 }, mat = "Metal", folder = "Decoracion" })
+		b:box({ name = "Caballo", size = { 1.2, 2.2, 3.6 }, pos = { x, DECK + 3.4, z }, rot = { 0, -i * 45 - 22.5, 0 }, color = ({ { 250, 250, 246 }, { 120, 80, 50 }, { 60, 60, 66 }, { 220, 170, 90 } })[(i % 4) + 1] })
+	end
+
+	b:symmetric(function(b)
+		-- Pilotes y barandillas
+		for x = -72, -6, 11 do
+			for _, z in ipairs({ -30, 30 }) do
+				b:cylinder({ name = "Pilote", length = 10, diameter = 1.6, pos = { x, 2.5, z }, color = { 96, 76, 58 }, mat = "Wood", folder = "Decoracion" })
+			end
+		end
+		P.railing(b, { -76, DECK, -30.4 }, { 0, DECK, -30.4 }, 3.5, WHITE)
+		P.railing(b, { -76, DECK, 30.4 }, { -42, DECK, 30.4 }, 3.5, WHITE)
+		for x = -60, -10, 25 do
+			b:cylinder({ name = "Salvavidas", axis = "z", length = 0.5, diameter = 2.4, pos = { x, DECK + 2.2, -30.8 }, color = { 240, 100, 40 }, folder = "Decoracion" })
+		end
+
+		-- Bar del muelle que protege el spawn
+		P.house(b, { -60, DECK, 0 }, -90, { w = 30, h = 12, d = 10, color = { 60, 140, 160 }, trim = WHITE, floors = 1, cols = 4, shop = "BAR DEL MUELLE", shopColor = { 230, 70, 120 }, lit = true })
+		P.neonSign(b, { -54.6, DECK + 15, 0 }, -90, { 14, 3 }, "COCTELES", { 120, 255, 230 }, "LuckiestGuy")
+
+		-- Puestos, carrito, mesas y bancos mirando al mar
+		P.marketStall(b, { -36, DECK, -20 }, 180, { 230, 70, 120 }, "HOT DOGS", { { 200, 120, 60 }, { 240, 200, 80 }, { 200, 60, 50 } })
+		P.marketStall(b, { -22, DECK, 20 }, 0, { 60, 150, 220 }, "HELADOS", { { 250, 200, 220 }, { 240, 240, 230 }, { 140, 90, 60 } })
+		P.hotdogCart(b, { -44, DECK, 14 }, 90)
+		P.umbrellaTable(b, { -30, DECK, -6 }, { 230, 70, 120 })
+		P.umbrellaTable(b, { -46, DECK, -10 }, { 60, 150, 220 })
+		for _, x in ipairs({ -66, -24 }) do
+			P.bench(b, { x, DECK, -27 }, 180, { 120, 90, 60 })
+		end
+		local truck = P.truck(b, { -18, DECK, -14 }, 90, { 250, 200, 70 })
+		for _, face in ipairs({ "Left", "Right" }) do
+			MB.sign(truck, "TACOS · FOOD TRUCK", { face = face, font = "LuckiestGuy", color = { 200, 50, 60 }, height = 0.35 })
+		end
+		P.crate(b, { -50, DECK, 22 }, 4.5, 10)
+		P.crate(b, { -54, DECK, 25 }, 3.5, -15)
+		P.mannequin(b, { -40, DECK, -28.6 }, 180, { 80, 120, 200 })
+		P.segment(b, { -40, DECK + 4.6, -29 }, { -40, DECK + 8, -36 }, 0.15, { 60, 50, 40 }, "Wood", "Decoracion")
+
+		-- Farolas
+		for _, x in ipairs({ -64, -34, -8 }) do
+			P.streetLight(b, { x, DECK, 28.6 }, 0, 14)
+		end
+		P.streetLight(b, { -50, DECK, -28.6 }, 180, 14)
+
+		for _, z in ipairs({ -8, 0, 8 }) do
+			b:spawn("A", { -70, DECK + 0.5, z }, -90)
+		end
+	end)
+
+	b:bounds(-76, 76, -30, 30, 60)
+
+	b:lighting({
+		technology = "Future",
+		lighting = {
+			ClockTime = 17.9,
+			Brightness = 2.4,
+			Ambient = { 120, 92, 96 },
+			OutdoorAmbient = { 160, 120, 120 },
+			ExposureCompensation = 0.15,
+			ShadowSoftness = 0.25,
+			EnvironmentDiffuseScale = 0.6,
+			EnvironmentSpecularScale = 0.7,
+		},
+		atmosphere = { density = 0.3, offset = 0.1, color = { 255, 176, 140 }, decay = { 170, 96, 110 }, glare = 1.6, haze = 2 },
+		colorCorrection = { contrast = 0.1, saturation = 0.22, tint = { 255, 236, 226 } },
+		clouds = { cover = 0.5, density = 0.5, color = { 255, 150, 130 } },
+		bloom = { intensity = 0.55, size = 28, threshold = 0.86 },
+		sunRays = { intensity = 0.14, spread = 0.7 },
+	})
+end
+]=]
 FUENTES_MAPAS["NuevaYork"] = [=[
 -- Nueva York: avenida al anochecer con edificios de ladrillo, taxis amarillos y metro. Equipo A en -X, equipo B en +X.
 return function(b, MB)
@@ -2891,6 +3753,274 @@ return function(b, MB)
 		clouds = { cover = 0.6, density = 0.5, color = { 230, 170, 160 } },
 		bloom = { intensity = 0.55, size = 26, threshold = 0.85 },
 		sunRays = { intensity = 0.06, spread = 0.5 },
+	})
+end
+]=]
+FUENTES_MAPAS["Oeste"] = [=[
+-- Pueblo del Oeste (como en las películas de vaqueros): calle principal polvorienta a mediodía,
+-- saloon, banco, sheriff y carretas. Equipo A en -X, equipo B en +X.
+return function(b, MB)
+	local P = MB.Props
+	local DIRT = { 196, 160, 112 }
+	local BOARD = { 140, 104, 70 }
+	local DARK = { 90, 62, 42 }
+
+	b.model:SetAttribute("Nombre", "Pueblo del Oeste")
+
+	-- Edificio de madera con fachada falsa, rótulo y porche (side = 1 norte, -1 sur)
+	local function building(x, side, w, h, color, sign, signColor)
+		local z = side * 31
+		local rot = side > 0 and 0 or 180
+		P.house(b, { x, 0, z }, rot, { w = w, h = h, d = 14, color = color, mat = "WoodPlanks", trim = P.darker(color, 50), floors = h >= 14 and 2 or 1, balcony = h >= 14, shutters = h < 14 and P.darker(color, 40) or nil })
+		local g = b:at({ x, 0, z }, rot)
+		g:box({ name = "Fachada", size = { w, 5, 0.6 }, pos = { 0, h + 2.5, -6.9 }, color = color, mat = "WoodPlanks" })
+		g:box({ name = "Remate", size = { w + 0.6, 0.6, 0.9 }, pos = { 0, h + 5.2, -6.9 }, color = P.darker(color, 50), mat = "Wood", folder = "Decoracion" })
+		local panel = g:box({ name = "Rotulo", size = { w - 2, 3, 0.2 }, pos = { 0, h + 2.5, -7.3 }, color = signColor, folder = "Decoracion" })
+		MB.sign(panel, sign, { font = "Fantasy", color = { 250, 236, 200 }, bg = signColor })
+		g:box({ name = "Porche", size = { w, 0.5, 5.4 }, pos = { 0, 8.6, -9.7 }, color = DARK, mat = "WoodPlanks" })
+		for _, px in ipairs({ -w / 2 + 0.6, w / 2 - 0.6 }) do
+			g:box({ name = "Poste", size = { 0.6, 8.4, 0.6 }, pos = { px, 4.2, -12 }, color = DARK, mat = "Wood" })
+		end
+	end
+
+	-- =================================================================
+	--  Desierto con mesetas, cactus y cielo
+	-- =================================================================
+	b:box({ name = "Desierto", size = { 900, 1, 900 }, pos = { 0, -1.2, 0 }, color = { 212, 172, 120 }, mat = "Sand", folder = "Decoracion" })
+	for _, m in ipairs({ { -200, 170, 130, 46 }, { 150, 220, 170, 60 }, { 300, 60, 110, 40 }, { -320, -40, 130, 50 }, { 20, -230, 160, 44 }, { -180, -200, 110, 36 } }) do
+		b:box({ name = "Meseta", size = { m[3], m[4], m[3] * 0.7 }, pos = { m[1], m[4] / 2 - 1, m[2] }, color = { 186, 100, 66 }, mat = "Sandstone", folder = "Decoracion" })
+		b:box({ name = "Meseta", size = { m[3] * 0.7, 6, m[3] * 0.5 }, pos = { m[1], m[4] + 2, m[2] }, color = { 170, 90, 60 }, mat = "Sandstone", folder = "Decoracion" })
+	end
+	for i = 0, 11 do
+		local a = i / 12 * math.pi * 2
+		P.cactus(b, { math.cos(a) * 120, 0, math.sin(a) * 90 }, 1.4 + (i % 3) * 0.3)
+	end
+
+	-- =================================================================
+	--  Calle principal, aceras de tablas y carreta central
+	-- =================================================================
+	b:box({ name = "Calle", size = { 164, 1, 72 }, pos = { 0, -0.5, 0 }, color = DIRT, mat = "Ground" })
+	for _, z in ipairs({ -21, 21 }) do
+		b:box({ name = "Acera", size = { 152, 0.6, 6 }, pos = { 0, 0.3, z }, color = BOARD, mat = "WoodPlanks" })
+	end
+	P.wagon(b, { 0, 0, 0 }, 0)
+	P.hayBale(b, { -4.4, 0, 7 }, 90)
+	P.hayBale(b, { 4.4, 0, -7 }, 90)
+	P.waterTank(b, { 0, 0, 30 })
+	P.bellTower(b, { 0, 0, -34 }, 180, 24, { 236, 226, 206 }, { 120, 80, 56 })
+
+	b:symmetric(function(b)
+		local m = b.mirrored
+		-- Edificios: norte y sur
+		building(-66, 1, 16, 12, { 150, 110, 80 }, m and "BARBERÍA" or "HOTEL", { 120, 50, 40 })
+		building(-49, 1, 18, 16, { 170, 120, 76 }, "SALOON", { 140, 40, 36 })
+		building(-31, 1, 14, 12, { 120, 130, 120 }, m and "TELÉGRAFO" or "BANCO", { 40, 80, 60 })
+		building(-15, 1, 16, 14, { 160, 140, 110 }, m and "HERRERÍA" or "SHERIFF", { 60, 60, 90 })
+		building(-66, -1, 16, 12, { 136, 100, 72 }, m and "ESTABLO" or "ALMACÉN", { 90, 60, 40 })
+		building(-49, -1, 18, 14, { 176, 150, 116 }, m and "CORREOS" or "HOTEL", { 50, 70, 120 })
+		building(-31, -1, 14, 12, { 150, 96, 70 }, m and "FUNERARIA" or "DOCTOR", { 40, 40, 40 })
+		building(-15, -1, 16, 16, { 166, 126, 90 }, "SALOON", { 140, 40, 36 })
+
+		-- Puertas batientes del saloon y carteles de "se busca"
+		for _, side in ipairs({ -1, 1 }) do
+			for _, dx in ipairs({ -0.9, 0.9 }) do
+				b:box({ name = "PuertaBatiente", size = { 1.6, 3, 0.2 }, pos = { (side > 0 and -49 or -15) + dx, 3.5, side * 23.3 }, color = { 110, 70, 40 }, mat = "WoodPlanks", folder = "Decoracion" })
+			end
+		end
+		for _, p in ipairs({ { -58, 23.7, 0 }, { -24, -23.7, 180 } }) do
+			P.poster(b, { p[1], 5, p[2] }, p[3], { 3, 4 }, { 236, 220, 180 }, "SE BUSCA\n$500", { 60, 40, 30 }, "Fantasy")
+		end
+
+		-- Postes para atar caballos y abrevaderos
+		for _, z in ipairs({ -17.4, 17.4 }) do
+			for _, x in ipairs({ -60, -42, -24 }) do
+				b:box({ name = "Poste", size = { 0.5, 3.6, 0.5 }, pos = { x - 2.5, 1.8, z }, color = DARK, mat = "Wood" })
+				b:box({ name = "Poste", size = { 0.5, 3.6, 0.5 }, pos = { x + 2.5, 1.8, z }, color = DARK, mat = "Wood" })
+				b:box({ name = "Barra", size = { 5.6, 0.4, 0.4 }, pos = { x, 3.3, z }, color = DARK, mat = "Wood", folder = "Decoracion" })
+			end
+		end
+		b:box({ name = "Abrevadero", size = { 6, 2.4, 2.4 }, pos = { -34, 1.2, 14 }, color = { 110, 80, 54 }, mat = "WoodPlanks" })
+		b:box({ name = "Agua", size = { 5.4, 0.1, 1.8 }, pos = { -34, 2.3, 14 }, color = { 80, 130, 150 }, mat = "Glass", folder = "Decoracion" })
+		b:box({ name = "Abrevadero", size = { 6, 2.4, 2.4 }, pos = { -46, 1.2, -14 }, color = { 110, 80, 54 }, mat = "WoodPlanks" })
+
+		-- Carreta, paja, barriles y cajas
+		P.wagon(b, { -40, 0, 4 }, 70, { 230, 220, 196 })
+		P.hayBale(b, { -24, 0, -8 }, 10)
+		P.hayBale(b, { -22, 0, -5 }, -20)
+		P.hayBale(b, { -23, 2.6, -6.4 }, 0)
+		P.hayBale(b, { -54, 0, 10 }, 80)
+		for _, p in ipairs({ { -12, -14 }, { -9.6, -15 }, { -11, 12.6 } }) do
+			P.drum(b, { p[1], 0, p[2] }, { 120, 80, 50 })
+		end
+		P.crate(b, { -28, 0, 13 }, 4, 20, { 170, 130, 90 })
+		b:ball({ name = "Rodamundos", diameter = 2.2, pos = { -36, 1.1, -4 }, color = { 170, 140, 90 }, mat = "Grass", transparency = 0.2, folder = "Decoracion" })
+		b:ball({ name = "Rodamundos", diameter = 1.8, pos = { -18, 0.9, 9 }, color = { 160, 130, 84 }, mat = "Grass", transparency = 0.2, folder = "Decoracion" })
+
+		-- Granero al final de la calle que protege el spawn
+		b:box({ name = "Granero", size = { 8, 12, 30 }, pos = { -62, 6, 0 }, color = { 170, 50, 40 }, mat = "WoodPlanks" })
+		b:wedge({ name = "Tejado", size = { 31, 3, 4.6 }, pos = { -64.3, 13.5, 0 }, rot = { 0, 90, 0 }, color = { 80, 60, 50 }, mat = "WoodPlanks" })
+		b:wedge({ name = "Tejado", size = { 31, 3, 4.6 }, pos = { -59.7, 13.5, 0 }, rot = { 0, -90, 0 }, color = { 80, 60, 50 }, mat = "WoodPlanks" })
+		for _, z in ipairs({ -5, 5 }) do
+			b:box({ name = "Puerta", size = { 0.3, 9, 8 }, pos = { -57.9, 4.5, z }, color = { 150, 40, 32 }, mat = "WoodPlanks", folder = "Decoracion" })
+			P.segment(b, { -57.7, 0.5, z - 3.6 }, { -57.7, 8.5, z + 3.6 }, 0.5, { 240, 236, 226 }, "WoodPlanks", "Decoracion")
+			P.segment(b, { -57.7, 0.5, z + 3.6 }, { -57.7, 8.5, z - 3.6 }, 0.5, { 240, 236, 226 }, "WoodPlanks", "Decoracion")
+		end
+		P.cactus(b, { -74, 0, -26 }, 1)
+
+		for _, z in ipairs({ -8, 0, 8 }) do
+			b:spawn("A", { -71, 0.5, z }, -90)
+		end
+	end)
+
+	b:bounds(-80, 80, -24, 24, 40)
+
+	b:lighting({
+		technology = "Future",
+		lighting = {
+			ClockTime = 12.4,
+			Brightness = 3.6,
+			Ambient = { 136, 116, 96 },
+			OutdoorAmbient = { 180, 150, 120 },
+			ExposureCompensation = 0,
+			ShadowSoftness = 0.1,
+			EnvironmentDiffuseScale = 0.5,
+			EnvironmentSpecularScale = 0.4,
+		},
+		atmosphere = { density = 0.3, offset = 0.1, color = { 236, 206, 160 }, decay = { 190, 140, 90 }, glare = 0.5, haze = 2 },
+		colorCorrection = { contrast = 0.12, saturation = 0.05, tint = { 255, 238, 214 } },
+		clouds = { cover = 0.15, density = 0.3, color = { 255, 246, 230 } },
+		bloom = { intensity = 0.3, size = 24, threshold = 0.95 },
+		sunRays = { intensity = 0.1, spread = 0.6 },
+	})
+end
+]=]
+FUENTES_MAPAS["PuebloNuclear"] = [=[
+-- Pueblo Nuclear (estilo Nuketown de Call of Duty): dos casas enfrentadas en un pueblo de pruebas
+-- en el desierto. Se puede entrar en las casas y subir al balcón. Equipo A en -X, equipo B en +X.
+return function(b, MB)
+	local P = MB.Props
+	local LAWN = { 118, 168, 80 }
+	local WHITE = { 244, 244, 238 }
+	local GREEN_TREES = { { 86, 140, 66 }, { 100, 156, 74 }, { 76, 126, 60 } }
+
+	b.model:SetAttribute("Nombre", "Pueblo Nuclear")
+
+	-- =================================================================
+	--  Desierto, mesetas y torre de pruebas
+	-- =================================================================
+	b:box({ name = "Desierto", size = { 900, 1, 900 }, pos = { 0, -1.2, 0 }, color = { 214, 184, 134 }, mat = "Sand", folder = "Decoracion" })
+	for _, m in ipairs({ { -220, 200, 140, 34 }, { 200, 240, 160, 40 }, { 320, 40, 110, 28 }, { -330, -40, 120, 36 }, { 60, -250, 150, 30 } }) do
+		b:box({ name = "Meseta", size = { m[3], m[4], m[3] * 0.7 }, pos = { m[1], m[4] / 2 - 1, m[2] }, color = { 196, 120, 82 }, mat = "Sandstone", folder = "Decoracion" })
+	end
+	local steel = { 120, 124, 132 }
+	for _, c in ipairs({ { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 } }) do
+		P.segment(b, { c[1] * 9, 0, 230 + c[2] * 9 }, { c[1] * 2.5, 90, 230 + c[2] * 2.5 }, 1.2, steel, "Metal", "Decoracion")
+	end
+	for _, y in ipairs({ 20, 40, 60, 80 }) do
+		local half = 9 - (6.5 * y / 90)
+		for _, c in ipairs({ { -1, -1, 1, -1 }, { 1, -1, 1, 1 }, { 1, 1, -1, 1 }, { -1, 1, -1, -1 } }) do
+			P.segment(b, { c[1] * half, y, 230 + c[2] * half }, { c[3] * half, y, 230 + c[4] * half }, 0.6, steel, "Metal", "Decoracion")
+		end
+	end
+	b:box({ name = "Cabina", size = { 9, 8, 9 }, pos = { 0, 94, 230 }, color = { 200, 196, 186 }, mat = "Metal", folder = "Decoracion" })
+	local warn = b:box({ name = "Aviso", size = { 30, 8, 1 }, pos = { 40, 10, 190 }, color = { 250, 210, 40 }, folder = "Decoracion" })
+	MB.sign(warn, "☢ ZONA DE PRUEBAS ☢", { font = "GothamBlack", color = { 30, 30, 30 }, bg = { 250, 210, 40 } })
+
+	-- =================================================================
+	--  Césped, calle, autobús, camión y cartel de bienvenida
+	-- =================================================================
+	b:box({ name = "Cesped", size = { 152, 1, 92 }, pos = { 0, -0.5, 0 }, color = LAWN, mat = "Grass" })
+	b:box({ name = "Calle", size = { 34, 0.1, 92 }, pos = { 0, 0.05, 0 }, color = { 82, 82, 86 }, mat = "Asphalt", folder = "Decoracion" })
+	for z = -42, 42, 8 do
+		b:box({ name = "Linea", size = { 0.5, 0.12, 4 }, pos = { 0, 0.07, z }, color = { 246, 200, 50 }, folder = "Decoracion" })
+	end
+	P.bus(b, { 1.45, 0, 24 }, 90, { 246, 190, 30 }, "ESCUELA")
+	local cargo = P.truck(b, { -2.4, 0, -24 }, 90, { 236, 236, 232 })
+	for _, face in ipairs({ "Left", "Right" }) do
+		MB.sign(cargo, "LECHE FRESCA", { face = face, font = "LuckiestGuy", color = { 60, 120, 200 }, height = 0.4 })
+	end
+	for _, x in ipairs({ -10, 10 }) do
+		b:box({ name = "Poste", size = { 1, 14, 1 }, pos = { x, 7, 44 }, color = { 110, 84, 60 }, mat = "Wood", folder = "Decoracion" })
+	end
+	local welcome = b:box({ name = "Cartel", size = { 24, 6, 0.6 }, pos = { 0, 11, 44 }, color = { 240, 236, 220 }, folder = "Decoracion" })
+	MB.sign(welcome, "PUEBLO NUCLEAR · POBLACIÓN 50", { font = "LuckiestGuy", color = { 200, 60, 50 }, bg = { 240, 236, 220 }, width = 0.9, height = 0.6 })
+	P.mannequin(b, { -4, 0, 10 }, 30, { 220, 70, 70 })
+	P.mannequin(b, { 6, 0, -12 }, -150, { 70, 150, 90 })
+
+	b:symmetric(function(b)
+		local mine = not b.mirrored
+		-- Casa (se puede entrar, con escalera y balcón)
+		P.openHouse(b, { -42, 0, 0 }, -90, {
+			color = mine and { 112, 170, 210 } or { 236, 200, 96 },
+			trim = WHITE,
+			roofColor = mine and { 70, 90, 120 } or { 150, 70, 50 },
+			sofa = mine and { 200, 80, 70 } or { 60, 110, 170 },
+		})
+		P.sidewalk(b, { -18.5, 0, 0 }, { 92, 3 }, -90)
+
+		-- Entrada de coches con coche y caravana
+		b:box({ name = "Entrada", size = { 30, 0.1, 10 }, pos = { -35, 0.06, 20 }, color = { 176, 172, 166 }, mat = "Concrete", folder = "Decoracion" })
+		P.car(b, { -36, 0, 20 }, -90, mine and { 210, 60, 60 } or { 60, 160, 150 })
+		b:box({ name = "Caravana", size = { 16, 7, 7 }, pos = { -48, 4.4, 36 }, color = { 240, 236, 226 }, mat = "Metal" })
+		b:box({ name = "Franja", size = { 16.1, 1, 7.1 }, pos = { -48, 4.4, 36 }, color = mine and { 80, 140, 200 } or { 220, 150, 50 }, folder = "Decoracion" })
+		for _, x in ipairs({ -52, -44 }) do
+			b:cylinder({ name = "Rueda", axis = "z", length = 7.4, diameter = 2, pos = { x, 1, 36 }, color = { 30, 30, 32 }, mat = "Rubber" })
+		end
+
+		-- Cobertizo y cajas al sur
+		b:box({ name = "Cobertizo", size = { 10, 8, 8 }, pos = { -48, 4, -36 }, color = { 150, 110, 76 }, mat = "WoodPlanks" })
+		b:wedge({ name = "Tejado", size = { 11, 2, 4.6 }, pos = { -48, 9, -38.3 }, color = { 90, 70, 60 }, mat = "RoofShingles" })
+		b:wedge({ name = "Tejado", size = { 11, 2, 4.6 }, pos = { -48, 9, -33.7 }, rot = { 0, 180, 0 }, color = { 90, 70, 60 }, mat = "RoofShingles" })
+		P.crate(b, { -36, 0, -34 }, 4.5, 15)
+		P.crate(b, { -33, 0, -40 }, 4, -10)
+
+		-- Jardín delantero: maniquíes, buzón y árbol
+		P.mannequin(b, { -24, 0, -8 }, -90, mine and { 60, 110, 180 } or { 220, 120, 40 })
+		P.mannequin(b, { -26, 0, 7 }, -120, mine and { 230, 230, 230 } or { 170, 60, 140 })
+		b:box({ name = "Buzon", size = { 0.4, 4, 0.4 }, pos = { -21, 2, -16 }, color = { 80, 80, 86 }, mat = "Metal" })
+		b:box({ name = "Buzon", size = { 1.4, 1.2, 2.2 }, pos = { -21, 4.4, -16 }, color = mine and { 60, 110, 180 } or { 200, 60, 50 }, mat = "Metal" })
+		P.tree(b, { -26, 0, -28 }, 1.1, GREEN_TREES)
+		P.bush(b, { -30, 0, -14 }, 1.1)
+		P.bush(b, { -30, 0, 14 }, 1.1)
+
+		-- Patio trasero: valla blanca, columpio, barbacoa y caseta del perro
+		P.woodFence(b, { -76, 0, -30 }, { -52, 0, -30 }, 4, WHITE)
+		P.woodFence(b, { -76, 0, 30 }, { -54, 0, 30 }, 4, WHITE)
+		for _, z in ipairs({ -24, -16 }) do
+			P.segment(b, { -66, 0, z }, { -64, 9, z }, 0.4, { 200, 60, 60 }, "Metal")
+			P.segment(b, { -62, 0, z }, { -64, 9, z }, 0.4, { 200, 60, 60 }, "Metal")
+		end
+		b:cylinder({ name = "Barra", axis = "z", length = 9, diameter = 0.4, pos = { -64, 9, -20 }, color = { 200, 60, 60 }, mat = "Metal", folder = "Decoracion" })
+		b:box({ name = "Columpio", size = { 1.6, 0.3, 1 }, pos = { -64, 2.4, -20 }, color = { 60, 60, 66 }, folder = "Decoracion" })
+		b:box({ name = "Barbacoa", size = { 3, 3, 2 }, pos = { -58, 1.5, 22 }, color = { 40, 40, 44 }, mat = "Metal" })
+		b:box({ name = "Caseta", size = { 4, 3.6, 4 }, pos = { -70, 1.8, 22 }, color = { 180, 80, 60 }, mat = "WoodPlanks" })
+		b:wedge({ name = "Tejado", size = { 4.6, 1.4, 2.3 }, pos = { -70, 4.3, 20.85 }, color = { 80, 60, 50 }, folder = "Decoracion" })
+		b:wedge({ name = "Tejado", size = { 4.6, 1.4, 2.3 }, pos = { -70, 4.3, 23.15 }, rot = { 0, 180, 0 }, color = { 80, 60, 50 }, folder = "Decoracion" })
+
+		for _, z in ipairs({ -3.5, 0, 3.5 }) do
+			b:spawn("A", { -66, 0.5, z }, -90)
+		end
+	end)
+
+	b:bounds(-76, 76, -46, 46, 45)
+
+	b:lighting({
+		technology = "Future",
+		lighting = {
+			ClockTime = 10.5,
+			Brightness = 3,
+			Ambient = { 128, 120, 110 },
+			OutdoorAmbient = { 170, 160, 140 },
+			ExposureCompensation = 0,
+			ShadowSoftness = 0.15,
+			EnvironmentDiffuseScale = 0.6,
+			EnvironmentSpecularScale = 0.5,
+		},
+		atmosphere = { density = 0.25, offset = 0.05, color = { 232, 216, 190 }, decay = { 170, 140, 110 }, glare = 0.4, haze = 1.4 },
+		colorCorrection = { contrast = 0.08, saturation = 0.2, tint = { 255, 250, 240 } },
+		clouds = { cover = 0.3, density = 0.4, color = { 255, 255, 255 } },
+		bloom = { intensity = 0.3, size = 24, threshold = 0.95 },
+		sunRays = { intensity = 0.08, spread = 0.6 },
 	})
 end
 ]=]
