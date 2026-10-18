@@ -1,10 +1,10 @@
 # Mapas de duelo para Roblox
 
-4 mapas detallados para duelos de tiros, en el estilo low-poly de colores suaves de tus capturas. Todos son **simétricos**: el equipo A aparece en un lado y el B en el otro, con el mismo terreno y la misma cobertura.
+10 mapas detallados para duelos de tiros, en el estilo low-poly de colores suaves de tus capturas: 4 urbanos y 6 de países. Todos son **simétricos**: el equipo A aparece en un lado y el B en el otro, con el mismo terreno y la misma cobertura.
 
 - Usan materiales reales de Roblox: baldosa, yeso, ladrillo, asfalto, adoquín, cartón, goma, madera...
 - Iluminación **Future** con brillo (Bloom), rayos de sol y atmósfera propia en cada mapa.
-- Cada mapa tiene entre 950 y 1.300 piezas.
+- Cada mapa tiene entre 600 y 1.600 piezas.
 
 | Mapa | Ambiente | Lo que tiene |
 |---|---|---|
@@ -12,6 +12,12 @@
 | **Gasolinera** | Atardecer rojizo | Tienda "Mini Market 24H" con toldo, neón, cajero y estanterías dentro; marquesina con surtidores; un taller mecánico a cada lado en el que se puede entrar; poste de precios, acera con farolas, paso de cebra, valla publicitaria en la colina y árboles de otoño. |
 | **Azotea Neón** | Noche | Valla "NEO CITY" sobre una pasarela, zona chill con sofá y guirnaldas de luces, depósito de agua al que se puede subir, paneles solares, generador, antenas con baliza y rascacielos con ventanas encendidas y letreros de neón. |
 | **Puerto de Contenedores** | Mediodía nublado | Contenedores rotulados con esquinas y cierres, uno abierto como túnel, uno con rampa, grúa pórtico con celosía, carretillas, caseta de control, torre de focos, barco portacontenedores atracado y grúas al fondo. |
+| 🇯🇵 **Japón** | Anochecer rosado | Calle empedrada con torii rojo en el centro, santuario con farolillos de piedra, casas de madera con tiendas (ramen, sushi, té), cerezos en flor, cuerdas de farolillos de papel encendidos, puesto de ramen, barriles de sake, bambú, máquinas expendedoras y el monte Fuji al fondo. |
+| 🇲🇽 **México** | Tarde soleada | Plaza de pueblo con quiosco, iglesia con dos campanarios, casas de colores con balcones y tiendas (tacos, panadería, abarrotes), papel picado cruzando la plaza, piñata, puestos de tacos y elotes, vocho, nopales, jacarandas y mesetas en el desierto. |
+| 🇪🇸 **España** | Mediodía de verano | Plaza andaluza con fuente, iglesia con campanario, casas encaladas con tejas, contraventanas y geranios, bar de tapas con terraza, naranjos en alcorques, soportales con columnas, seiscientos aparcado, barriles de vino y olivos en las colinas. |
+| 🇪🇬 **Egipto** | Atardecer dorado | Ruinas de templo con obelisco, esfinge, pilono con relieves pintados y estandartes, columnatas (una en ruinas, con una columna caída), estatuas de faraón, braseros con fuego, oasis con palmeras, bazar con tienda y ánforas, y las pirámides al fondo. |
+| 🇺🇸 **Nueva York** | Anochecer | Avenida con edificios de ladrillo con escaleras de incendios, depósitos de agua y tiendas iluminadas (pizza, deli, bodega...), taxis amarillos, camión de reparto, obras con chimenea de vapor, boca de metro, semáforos, carrito de perritos, valla de obra con carteles y rascacielos con el Empire State al fondo. |
+| 🇷🇺 **Rusia** | Invierno nublado, **con nieve cayendo** | Aldea con casas de troncos (izbas), iglesia con cúpulas de cebolla azul y dorada, abeto de Año Nuevo con bolas y estrella, puestos de té y blinis, montones de leña y nieve, muñeco de nieve, Lada nevado, empalizada y bosque de abetos. |
 
 Vista general y vista desde el spawn de cada mapa:
 
@@ -19,6 +25,12 @@ Vista general y vista desde el spawn de cada mapa:
 ![Gasolinera](previews/Gasolinera.jpg)
 ![Azotea](previews/Azotea.jpg)
 ![Puerto](previews/Puerto.jpg)
+![Japón](previews/Japon.jpg)
+![México](previews/Mexico.jpg)
+![España](previews/Espana.jpg)
+![Egipto](previews/Egipto.jpg)
+![Nueva York](previews/NuevaYork.jpg)
+![Rusia](previews/Rusia.jpg)
 
 Estas imágenes son una aproximación hecha fuera de Roblox. En Studio, la luz, los materiales y las fuentes se ven mejor.
 
@@ -32,14 +44,15 @@ Estas imágenes son una aproximación hecha fuera de Roblox. En Studio, la luz, 
 4. **Opcional, pero recomendado:** en el Explorador, selecciona **Lighting** y pon la propiedad **Technology** en **Future**. Así las luces tienen sombras y el neón brilla. Roblox no deja cambiarlo desde scripts, así que hazlo una vez a mano.
 5. Se crean tres cosas:
    - `ServerStorage.MapBuilder`, el módulo para cargar mapas.
-   - `ServerStorage.MapasDuelo`, con los 4 mapas.
+   - `ServerStorage.MapasDuelo`, con los 10 mapas.
    - `Workspace.MapaActual`, con la Gasolinera colocada para que la veas.
 6. Guarda el juego.
 
 Para ver otro mapa, escribe esto en la barra de comandos:
 ```lua
-require(game.ServerStorage.MapBuilder).load("Skatepark")
+require(game.ServerStorage.MapBuilder).load("Japon")
 ```
+Los nombres son: `Skatepark`, `Gasolinera`, `Azotea`, `Puerto`, `Japon`, `Mexico`, `Espana`, `Egipto`, `NuevaYork` y `Rusia` (sin tildes ni espacios).
 
 ### Opción B: Rojo
 
@@ -82,13 +95,15 @@ Cada mapa tiene estas carpetas:
   b:box({ name = "Caja", size = { 5, 5, 5 }, pos = { -30, 2.5, -10 }, color = { 206, 160, 104 }, mat = "WoodPlanks" })
   ```
   Todo lo que va dentro de `b:symmetric(function(b) ... end)` se crea dos veces, una por cada lado. Así el mapa sigue siendo justo para los dos equipos.
-- **Usar las piezas prefabricadas:** `MapBuilder/Props.luau` tiene más de 60 objetos listos (coches, camiones, farolas, árboles, contenedores, carteles de neón, guirnaldas de luces, vallas, escaleras, rampas...) para montar mapas nuevos rápido. Por ejemplo, `P.car(b, { x, 0, z }, giro, color)`.
+- **Usar las piezas prefabricadas:** `MapBuilder/Props.luau` tiene más de 80 objetos listos (coches, taxis, camiones, farolas, árboles, palmeras, abetos, cactus, contenedores, carteles de neón, guirnaldas, papel picado, farolillos, torii, fuente, quiosco, columnas, obelisco, pirámide, cúpulas, campanario, muñeco de nieve...) para montar mapas nuevos rápido. Por ejemplo, `P.car(b, { x, 0, z }, giro, color)`.
+- **Casas de cualquier país:** `P.house` crea una casa con ventanas, puerta, tejado y detalles a partir de unas opciones (color, material, tejado plano/a dos aguas/pagoda, contraventanas, balcones con flores, tienda con rótulo, troncos, escaleras de incendios...). `P.houseRow` llena una calle entera alternando estilos. Así puedes hacer un país nuevo cambiando solo colores y textos.
+- **Nieve:** la nevada de Rusia usa la textura de partículas por defecto de Roblox. Si quieres copos más bonitos, pon el ID de una textura de copo de nieve en la propiedad `Texture` del emisor `Nieve` (dentro de la pieza `Nevada`).
 - **Regenerar el script:** después de cambiar código, ejecuta `python3 build_bundle.py` para volver a crear `ConstruirMapas.luau`.
 
 ## Comprobaciones hechas
 
-- El código se ejecutó con una simulación de la API de Roblox. Los 4 mapas se construyen sin errores, y al cambiar de mapa se limpia el anterior y su iluminación.
+- El código se ejecutó con una simulación de la API de Roblox. Los 10 mapas se construyen sin errores, y al cambiar de mapa se limpia el anterior y su iluminación.
 - Ningún spawn queda dentro de un objeto.
 - Ningún spawn tiene visión directa de los spawns rivales, para evitar que se mate a nadie nada más aparecer.
 - Todos los materiales, fuentes, clases y propiedades que se usan existen en la API oficial de Roblox.
-- Cada mapa usa entre 950 y 1.300 piezas, ancladas y con la decoración sin colisión, así que es ligero también en móvil.
+- Cada mapa usa entre 600 y 1.600 piezas, ancladas y con la decoración sin colisión, así que es ligero también en móvil.
