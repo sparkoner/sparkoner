@@ -29,6 +29,7 @@ parts = [
     '',
     'local ServerStorage = game:GetService("ServerStorage")',
     'local FUENTE_MAPBUILDER = ' + long_string(init),
+    'local FUENTE_PROPS = ' + long_string(open(os.path.join(SRC, 'Props.luau'), encoding='utf-8').read()),
     'local FUENTES_MAPAS = {}',
 ]
 for name in maps:
@@ -41,6 +42,10 @@ parts += [
     'local modulo = Instance.new("ModuleScript")',
     'modulo.Name = "MapBuilder"',
     'modulo.Source = FUENTE_MAPBUILDER',
+    'local props = Instance.new("ModuleScript")',
+    'props.Name = "Props"',
+    'props.Source = FUENTE_PROPS',
+    'props.Parent = modulo',
     'local carpeta = Instance.new("Folder")',
     'carpeta.Name = "Mapas"',
     'carpeta.Parent = modulo',
@@ -53,6 +58,8 @@ parts += [
     'modulo.Parent = ServerStorage',
     '',
     'local MapBuilder = require(modulo)',
+    '-- La iluminación Future da sombras a las luces y brillo al neón',
+    'pcall(function() game:GetService("Lighting").Technology = Enum.Technology.Future end)',
     'MapBuilder.buildAll()',
     'if VER_MAPA then',
     '\tMapBuilder.load(VER_MAPA)',

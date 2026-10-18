@@ -1,13 +1,17 @@
 # Mapas de duelo para Roblox
 
-4 mapas para duelos de tiros, en el estilo low-poly de colores suaves de tus capturas. Todos son **simétricos**: el equipo A aparece en un lado y el B en el otro, con el mismo terreno y la misma cobertura.
+4 mapas detallados para duelos de tiros, en el estilo low-poly de colores suaves de tus capturas. Todos son **simétricos**: el equipo A aparece en un lado y el B en el otro, con el mismo terreno y la misma cobertura.
+
+- Usan materiales reales de Roblox: baldosa, yeso, ladrillo, asfalto, adoquín, cartón, goma, madera...
+- Iluminación **Future** con brillo (Bloom), rayos de sol y atmósfera propia en cada mapa.
+- Cada mapa tiene entre 950 y 1.300 piezas.
 
 | Mapa | Ambiente | Lo que tiene |
 |---|---|---|
-| **Skatepark SK8 OR DIE** | Nave cubierta, tarde | Bloque central "SK8 OR DIE" con plataforma alta, half-pipe con escaleras, funbox, cajas, ledges con borde amarillo, ventanales con árboles fuera. |
-| **Gasolinera** | Atardecer rojizo | Tienda "Mini Market 24H" con 3 puertas y estanterías dentro, marquesina con surtidores, coches, barreras, postes eléctricos, colinas y árboles de otoño. |
-| **Azotea Neón** | Noche | Valla luminosa "NEO CITY" sobre una pasarela (se sube con escaleras de mano), casetas como sala de spawn, aires acondicionados, depósito de agua y rascacielos alrededor. |
-| **Puerto de Contenedores** | Mediodía nublado | Contenedores de colores, uno abierto como túnel, uno con rampa para ganar altura, grúa pórtico y muelle rodeado de mar. |
+| **Skatepark SK8 OR DIE** | Nave cubierta, tarde | Bloque central "SK8 OR DIE" con plataforma alta y rampas, half-pipe con letrero de neón, funbox con rail, gradas, murales, taquillas, expositor de tablas, máquina de bebidas, ventanales con marcos, tragaluces y conductos en el techo. |
+| **Gasolinera** | Atardecer rojizo | Tienda "Mini Market 24H" con toldo, neón, cajero y estanterías dentro; marquesina con surtidores; un taller mecánico a cada lado en el que se puede entrar; poste de precios, acera con farolas, paso de cebra, valla publicitaria en la colina y árboles de otoño. |
+| **Azotea Neón** | Noche | Valla "NEO CITY" sobre una pasarela, zona chill con sofá y guirnaldas de luces, depósito de agua al que se puede subir, paneles solares, generador, antenas con baliza y rascacielos con ventanas encendidas y letreros de neón. |
+| **Puerto de Contenedores** | Mediodía nublado | Contenedores rotulados con esquinas y cierres, uno abierto como túnel, uno con rampa, grúa pórtico con celosía, carretillas, caseta de control, torre de focos, barco portacontenedores atracado y grúas al fondo. |
 
 Vista general y vista desde el spawn de cada mapa:
 
@@ -25,11 +29,12 @@ Estas imágenes son una aproximación hecha fuera de Roblox. En Studio, la luz, 
 1. Abre tu juego en Roblox Studio.
 2. Abre `ConstruirMapas.luau`, selecciona todo y cópialo.
 3. En Studio, ve a **Ver → Barra de comandos**, pega el texto y pulsa **Enter**.
-4. Se crean tres cosas:
+4. **Opcional, pero recomendado:** en el Explorador, selecciona **Lighting** y pon la propiedad **Technology** en **Future**. Así las luces tienen sombras y el neón brilla. Roblox no deja cambiarlo desde scripts, así que hazlo una vez a mano.
+5. Se crean tres cosas:
    - `ServerStorage.MapBuilder`, el módulo para cargar mapas.
    - `ServerStorage.MapasDuelo`, con los 4 mapas.
    - `Workspace.MapaActual`, con la Gasolinera colocada para que la veas.
-5. Guarda el juego.
+6. Guarda el juego.
 
 Para ver otro mapa, escribe esto en la barra de comandos:
 ```lua
@@ -77,6 +82,7 @@ Cada mapa tiene estas carpetas:
   b:box({ name = "Caja", size = { 5, 5, 5 }, pos = { -30, 2.5, -10 }, color = { 206, 160, 104 }, mat = "WoodPlanks" })
   ```
   Todo lo que va dentro de `b:symmetric(function(b) ... end)` se crea dos veces, una por cada lado. Así el mapa sigue siendo justo para los dos equipos.
+- **Usar las piezas prefabricadas:** `MapBuilder/Props.luau` tiene más de 60 objetos listos (coches, camiones, farolas, árboles, contenedores, carteles de neón, guirnaldas de luces, vallas, escaleras, rampas...) para montar mapas nuevos rápido. Por ejemplo, `P.car(b, { x, 0, z }, giro, color)`.
 - **Regenerar el script:** después de cambiar código, ejecuta `python3 build_bundle.py` para volver a crear `ConstruirMapas.luau`.
 
 ## Comprobaciones hechas
@@ -84,4 +90,5 @@ Cada mapa tiene estas carpetas:
 - El código se ejecutó con una simulación de la API de Roblox. Los 4 mapas se construyen sin errores, y al cambiar de mapa se limpia el anterior y su iluminación.
 - Ningún spawn queda dentro de un objeto.
 - Ningún spawn tiene visión directa de los spawns rivales, para evitar que se mate a nadie nada más aparecer.
-- Cada mapa usa entre 250 y 520 piezas, ligero para cualquier dispositivo.
+- Todos los materiales, fuentes, clases y propiedades que se usan existen en la API oficial de Roblox.
+- Cada mapa usa entre 950 y 1.300 piezas, ancladas y con la decoración sin colisión, así que es ligero también en móvil.

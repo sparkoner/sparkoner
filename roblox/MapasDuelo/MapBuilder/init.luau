@@ -334,214 +334,31 @@ function Builder:lighting(settings)
 		clouds.Color = rgb(c.color or { 255, 255, 255 })
 		clouds.Parent = config
 	end
+	if settings.bloom then
+		local b = settings.bloom
+		local bloom = Instance.new("BloomEffect")
+		bloom.Intensity = b.intensity or 0.6
+		bloom.Size = b.size or 24
+		bloom.Threshold = b.threshold or 0.9
+		bloom.Parent = config
+	end
+	if settings.sunRays then
+		local r = settings.sunRays
+		local rays = Instance.new("SunRaysEffect")
+		rays.Intensity = r.intensity or 0.08
+		rays.Spread = r.spread or 0.6
+		rays.Parent = config
+	end
+	if settings.technology then
+		config:SetAttribute("Tecnologia", settings.technology)
+	end
 	return config
 end
 
 -- =====================================================================
---  Piezas reutilizables
+--  Piezas reutilizables (Props.luau)
 -- =====================================================================
-local Props = MapBuilder.Props
-
--- Caja de madera (pos = centro de la base)
-function Props.crate(g, pos, size, rotY, color)
-	local c = g:at(pos, rotY)
-	local s = size or 5
-	local wood = color or { 206, 160, 104 }
-	c:box({ name = "Caja", size = { s, s, s }, pos = { 0, s / 2, 0 }, color = wood, mat = "WoodPlanks" })
-	local dark = { wood[1] - 50, wood[2] - 45, wood[3] - 35 }
-	c:box({ name = "Refuerzo", size = { s + 0.1, 0.5, s + 0.1 }, pos = { 0, 0.25, 0 }, color = dark, mat = "Wood" })
-	c:box({ name = "Refuerzo", size = { s + 0.1, 0.5, s + 0.1 }, pos = { 0, s - 0.25, 0 }, color = dark, mat = "Wood" })
-end
-
--- Árbol low-poly decorativo
-function Props.tree(g, pos, scale, palette)
-	local t = g:at(pos, 0)
-	local s = scale or 1
-	local leaves = palette or { { 196, 120, 58 }, { 168, 108, 50 }, { 134, 128, 62 } }
-	t:cylinder({ name = "Tronco", length = 8 * s, diameter = 1.5 * s, pos = { 0, 4 * s, 0 }, color = { 98, 70, 50 }, mat = "Wood", folder = "Decoracion" })
-	local blobs = {
-		{ 0, 9 * s, 0, 9 * s, 1 },
-		{ 2.6 * s, 7.6 * s, 1.2 * s, 6.5 * s, 2 },
-		{ -2.4 * s, 8 * s, -1.4 * s, 7 * s, 3 },
-		{ 0.8 * s, 11.6 * s, -0.8 * s, 6 * s, 2 },
-		{ -1 * s, 7.4 * s, 2.4 * s, 5.5 * s, 1 },
-	}
-	for _, b in ipairs(blobs) do
-		t:ball({ name = "Copa", diameter = b[4], pos = { b[1], b[2], b[3] }, color = leaves[b[5]], mat = "LeafyGrass", folder = "Decoracion" })
-	end
-end
-
--- Coche simple (frente hacia -Z local)
-function Props.car(g, pos, rotY, color)
-	local c = g:at(pos, rotY)
-	local paint = color or { 190, 50, 50 }
-	c:box({ name = "Carroceria", size = { 5.2, 2.4, 11 }, pos = { 0, 1.9, 0 }, color = paint, mat = "SmoothPlastic", reflectance = 0.05 })
-	c:box({ name = "Cabina", size = { 4.6, 2, 5.6 }, pos = { 0, 4.1, 0.6 }, color = { 40, 46, 56 }, mat = "Glass", transparency = 0.15 })
-	c:box({ name = "Techo", size = { 4.7, 0.3, 5 }, pos = { 0, 5.2, 0.6 }, color = paint })
-	for _, w in ipairs({ { -2.5, -3.5 }, { 2.5, -3.5 }, { -2.5, 3.5 }, { 2.5, 3.5 } }) do
-		c:cylinder({ name = "Rueda", axis = "x", length = 1, diameter = 2.6, pos = { w[1], 1.3, w[2] }, color = { 30, 30, 32 } })
-	end
-	c:box({ name = "Faro", size = { 4.2, 0.6, 0.2 }, pos = { 0, 2.3, -5.55 }, color = { 255, 240, 200 }, mat = "Neon", folder = "Decoracion" })
-	c:box({ name = "Piloto", size = { 4.2, 0.5, 0.2 }, pos = { 0, 2.3, 5.55 }, color = { 200, 30, 30 }, mat = "Neon", folder = "Decoracion" })
-end
-
--- Camión de reparto (frente hacia -Z local). Devuelve la caja para poner carteles
-function Props.truck(g, pos, rotY, color)
-	local t = g:at(pos, rotY)
-	t:box({ name = "Chasis", size = { 7, 1.2, 22 }, pos = { 0, 1.6, 2 }, color = { 50, 50, 56 }, mat = "Metal" })
-	local cargo = t:box({ name = "Caja", size = { 8, 8.5, 15 }, pos = { 0, 6.45, 5.5 }, color = color or { 236, 236, 232 } })
-	t:box({ name = "Cabina", size = { 7.6, 6, 5.5 }, pos = { 0, 5.2, -5.3 }, color = { 200, 60, 50 } })
-	t:box({ name = "Parabrisas", size = { 6.6, 2.4, 0.2 }, pos = { 0, 6.4, -8.1 }, color = { 40, 46, 56 }, mat = "Glass", transparency = 0.15, folder = "Decoracion" })
-	for _, w in ipairs({ { -3.6, -5.5 }, { 3.6, -5.5 }, { -3.6, 4 }, { 3.6, 4 }, { -3.6, 9 }, { 3.6, 9 } }) do
-		t:cylinder({ name = "Rueda", axis = "x", length = 1, diameter = 3, pos = { w[1], 1.5, w[2] }, color = { 30, 30, 32 } })
-	end
-	return cargo
-end
-
--- Barrera de hormigón tipo New Jersey (a lo largo de X local)
-function Props.barrier(g, pos, rotY)
-	local b = g:at(pos, rotY)
-	b:box({ name = "Barrera", size = { 8, 2, 2.4 }, pos = { 0, 1, 0 }, color = { 228, 226, 222 }, mat = "Concrete" })
-	b:box({ name = "Barrera", size = { 8, 1.6, 1.2 }, pos = { 0, 2.8, 0 }, color = { 228, 226, 222 }, mat = "Concrete" })
-	for _, x in ipairs({ -2.6, 2.6 }) do
-		b:box({ name = "Franja", size = { 1.6, 1.2, 2.5 }, pos = { x, 1, 0 }, color = { 205, 45, 45 }, folder = "Decoracion" })
-	end
-end
-
--- Contenedor de 21 x 9 x 8.5 a lo largo de X local. open = túnel atravesable
-function Props.container(g, pos, rotY, color, open)
-	local c = g:at(pos, rotY)
-	local L, H, W = 21, 9, 8.5
-	local dark = { math.max(color[1] - 40, 0), math.max(color[2] - 40, 0), math.max(color[3] - 40, 0) }
-	if open then
-		c:box({ name = "Suelo", size = { L, 0.6, W }, pos = { 0, 0.3, 0 }, color = dark, mat = "DiamondPlate" })
-		c:box({ name = "Techo", size = { L, 0.6, W }, pos = { 0, H - 0.3, 0 }, color = color, mat = "Metal" })
-		c:box({ name = "Pared", size = { L, H, 0.6 }, pos = { 0, H / 2, -W / 2 + 0.3 }, color = color, mat = "Metal" })
-		c:box({ name = "Pared", size = { L, H, 0.6 }, pos = { 0, H / 2, W / 2 - 0.3 }, color = color, mat = "Metal" })
-	else
-		c:box({ name = "Contenedor", size = { L, H, W }, pos = { 0, H / 2, 0 }, color = color, mat = "Metal" })
-		-- Puertas en el extremo +X
-		c:box({ name = "Puerta", size = { 0.3, H - 0.6, W / 2 - 0.3 }, pos = { L / 2 + 0.1, H / 2, -W / 4 }, color = dark, mat = "Metal", folder = "Decoracion" })
-		c:box({ name = "Puerta", size = { 0.3, H - 0.6, W / 2 - 0.3 }, pos = { L / 2 + 0.1, H / 2, W / 4 }, color = dark, mat = "Metal", folder = "Decoracion" })
-	end
-	-- Nervios corrugados en los laterales
-	for i = 0, 8 do
-		local x = -L / 2 + 1.5 + i * 2.25
-		for _, side in ipairs({ -1, 1 }) do
-			c:box({ name = "Nervio", size = { 0.5, H - 0.8, 0.25 }, pos = { x, H / 2, side * (W / 2 + 0.1) }, color = dark, mat = "Metal", folder = "Decoracion" })
-		end
-	end
-end
-
--- Poste eléctrico de ladrillo con travesaño
-function Props.pole(g, pos, height)
-	local p = g:at(pos, 0)
-	p:box({ name = "Poste", size = { 1.8, height, 1.8 }, pos = { 0, height / 2, 0 }, color = { 150, 82, 66 }, mat = "Brick" })
-	p:box({ name = "Travesano", size = { 9, 0.6, 0.6 }, pos = { 0, height - 1.5, 0 }, color = { 90, 70, 55 }, mat = "Wood", folder = "Decoracion" })
-	for _, x in ipairs({ -3.5, 0, 3.5 }) do
-		p:cylinder({ name = "Aislante", length = 0.8, diameter = 0.4, pos = { x, height - 0.8, 0 }, color = { 200, 200, 190 }, folder = "Decoracion" })
-	end
-end
-
--- Lámpara de techo con panel de neón y luz hacia abajo
-function Props.ceilingLight(g, pos, withLight, color)
-	local l = g:at(pos, 0)
-	l:box({ name = "Carcasa", size = { 10, 0.6, 3 }, pos = { 0, 0, 0 }, color = { 50, 48, 60 }, folder = "Decoracion" })
-	local panel = l:box({ name = "Panel", size = { 9, 0.2, 2.4 }, pos = { 0, -0.4, 0 }, color = color or { 255, 238, 214 }, mat = "Neon", folder = "Decoracion" })
-	if withLight then
-		MapBuilder.light(panel, "Surface", { face = "Bottom", brightness = 1.4, range = 38, angle = 120, color = color or { 255, 236, 210 } })
-	end
-end
-
--- Barandilla entre dos puntos a la misma altura
-function Props.railing(g, from, to, height, color)
-	local dx, dz = to[1] - from[1], to[3] - from[3]
-	local length = math.sqrt(dx * dx + dz * dz)
-	local yaw = math.deg(math.atan2(-dz, dx))
-	local mid = { (from[1] + to[1]) / 2, from[2], (from[3] + to[3]) / 2 }
-	local r = g:at(mid, yaw)
-	local metal = color or { 186, 188, 196 }
-	local posts = math.max(2, math.floor(length / 4) + 1)
-	for i = 0, posts - 1 do
-		local x = -length / 2 + i * length / (posts - 1)
-		r:box({ name = "Poste", size = { 0.3, height, 0.3 }, pos = { x, height / 2, 0 }, color = metal, mat = "Metal" })
-	end
-	r:box({ name = "Pasamanos", size = { length, 0.3, 0.3 }, pos = { 0, height, 0 }, color = metal, mat = "Metal" })
-	r:box({ name = "Barra", size = { length, 0.2, 0.2 }, pos = { 0, height / 2, 0 }, color = metal, mat = "Metal", folder = "Decoracion" })
-end
-
--- Escalera: sube hacia +Z local
-function Props.stairs(g, pos, rotY, steps, stepHeight, stepDepth, width, color)
-	local s = g:at(pos, rotY)
-	for i = 1, steps do
-		local h = i * stepHeight
-		s:box({ name = "Escalon", size = { width, h, stepDepth }, pos = { 0, h / 2, (i - 0.5) * stepDepth }, color = color })
-	end
-end
-
--- Cuarto de tubo (quarter pipe): curva que sube hacia +Z local
-function Props.quarterPipe(g, pos, rotY, width, radius, surface, side)
-	local q = g:at(pos, rotY)
-	local segments = 8
-	local prevZ, prevY = 0, 0
-	for i = 1, segments do
-		local phi = math.rad(90 * i / segments)
-		local z, y = radius * math.sin(phi), radius - radius * math.cos(phi)
-		local dz, dy = z - prevZ, y - prevY
-		local len = math.sqrt(dz * dz + dy * dy)
-		local angle = math.deg(math.atan2(dy, dz))
-		q:box({ name = "Curva", size = { width, 0.6, len + 0.15 }, pos = { 0, (y + prevY) / 2, (z + prevZ) / 2 }, rot = { -angle, 0, 0 }, color = surface, mat = "WoodPlanks" })
-		-- Relleno bajo la curva para que no haya huecos
-		local fill = math.min(y, prevY) - 0.3
-		if fill > 0.2 then
-			q:box({ name = "Relleno", size = { width - 0.2, fill, dz }, pos = { 0, fill / 2, (z + prevZ) / 2 }, color = side })
-		end
-		prevZ, prevY = z, y
-	end
-	q:cylinder({ name = "Coping", axis = "x", length = width, diameter = 0.7, pos = { 0, radius, radius }, color = { 190, 192, 200 }, mat = "Metal" })
-end
-
--- Aire acondicionado industrial
-function Props.acUnit(g, pos, rotY)
-	local a = g:at(pos, rotY)
-	a:box({ name = "AireAcondicionado", size = { 7, 4.5, 5 }, pos = { 0, 2.25, 0 }, color = { 182, 186, 192 }, mat = "Metal" })
-	a:box({ name = "Rejilla", size = { 6, 3, 0.2 }, pos = { 0, 2.4, -2.55 }, color = { 110, 114, 122 }, mat = "DiamondPlate", folder = "Decoracion" })
-	a:cylinder({ name = "Ventilador", length = 0.4, diameter = 3.6, pos = { 0, 4.6, 0.5 }, color = { 60, 62, 70 }, folder = "Decoracion" })
-end
-
--- Surtidor de gasolina
-function Props.pump(g, pos, rotY)
-	local p = g:at(pos, rotY)
-	p:box({ name = "Surtidor", size = { 2.4, 5, 1.6 }, pos = { 0, 2.5, 0 }, color = { 236, 232, 228 } })
-	p:box({ name = "FranjaRoja", size = { 2.5, 1, 1.7 }, pos = { 0, 4.6, 0 }, color = { 205, 45, 45 }, folder = "Decoracion" })
-	p:box({ name = "Pantalla", size = { 1.6, 0.8, 0.1 }, pos = { 0, 3.4, -0.85 }, color = { 120, 230, 140 }, mat = "Neon", folder = "Decoracion" })
-	p:box({ name = "Pantalla", size = { 1.6, 0.8, 0.1 }, pos = { 0, 3.4, 0.85 }, color = { 120, 230, 140 }, mat = "Neon", folder = "Decoracion" })
-	p:box({ name = "Manguera", size = { 0.25, 2.6, 0.25 }, pos = { 1.35, 2.2, 0 }, color = { 30, 30, 30 }, folder = "Decoracion" })
-end
-
--- Bidón metálico
-function Props.drum(g, pos, color)
-	g:cylinder({ name = "Bidon", length = 3.4, diameter = 2.4, pos = { pos[1], pos[2] + 1.7, pos[3] }, color = color or { 48, 92, 150 }, mat = "Metal" })
-end
-
--- Palé de madera
-function Props.pallet(g, pos, rotY)
-	local p = g:at(pos, rotY)
-	for _, z in ipairs({ -1.6, 0, 1.6 }) do
-		p:box({ name = "Taco", size = { 4.4, 0.5, 0.6 }, pos = { 0, 0.25, z }, color = { 150, 110, 70 }, mat = "Wood" })
-	end
-	p:box({ name = "Tablas", size = { 4.4, 0.3, 4 }, pos = { 0, 0.65, 0 }, color = { 176, 132, 86 }, mat = "WoodPlanks" })
-end
-
--- Banco
-function Props.bench(g, pos, rotY)
-	local b = g:at(pos, rotY)
-	b:box({ name = "Asiento", size = { 6, 0.5, 1.6 }, pos = { 0, 1.6, 0 }, color = { 150, 100, 60 }, mat = "WoodPlanks" })
-	b:box({ name = "Respaldo", size = { 6, 1.4, 0.3 }, pos = { 0, 2.6, 0.7 }, color = { 150, 100, 60 }, mat = "WoodPlanks" })
-	for _, x in ipairs({ -2.5, 2.5 }) do
-		b:box({ name = "Pata", size = { 0.4, 1.4, 1.4 }, pos = { x, 0.7, 0 }, color = { 50, 50, 56 }, mat = "Metal" })
-	end
-end
+require(script:WaitForChild("Props"))(MapBuilder)
 
 -- =====================================================================
 --  Construir, cargar e iluminar
@@ -594,10 +411,18 @@ function MapBuilder.applyLighting(map)
 		return
 	end
 	for name, value in pairs(config:GetAttributes()) do
-		Lighting[name] = value
+		if name == "Tecnologia" then
+			-- Future da sombras a las luces y brillo al neón (solo se puede cambiar desde Studio)
+			pcall(function()
+				Lighting.Technology = Enum.Technology[value]
+			end)
+		else
+			Lighting[name] = value
+		end
 	end
+	-- Quita los efectos del mapa anterior y los del mismo tipo que trae este mapa
 	for _, child in ipairs(Lighting:GetChildren()) do
-		if child:GetAttribute("DeMapa") or (child:IsA("Atmosphere") and config:FindFirstChildOfClass("Atmosphere")) then
+		if child:GetAttribute("DeMapa") or config:FindFirstChildOfClass(child.ClassName) then
 			child:Destroy()
 		end
 	end
