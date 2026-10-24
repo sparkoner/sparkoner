@@ -1,26 +1,100 @@
 -- Pega TODO este texto en la barra de comandos de Roblox Studio (Ver > Barra de comandos) y pulsa Enter.
--- Crea ServerStorage.MapBuilder y ServerStorage.MundoAbierto y pone el mundo abierto en Workspace.
--- OJO: borra el terreno que haya en este lugar. Úsalo mejor en un lugar nuevo.
--- Archivo generado por build_bundle.py: edita los .luau de MapBuilder/ y MundoAbierto/ y vuelve a generarlo.
+-- Instala el mundo abierto y su clima y genera el terreno. Tarda un par de minutos.
+-- OJO: borra el terreno y la Baseplate de este lugar. Úsalo en un lugar nuevo.
+-- Archivo generado por build_bundle.py a partir de src/.
 
 local ServerStorage = game:GetService("ServerStorage")
-local FUENTE_MAPBUILDER = [=[
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
+local StarterPlayer = game:GetService("StarterPlayer")
+local FUENTE_MUNDO = [=[
 --[[
-	MapBuilder: construye mapas de duelo con piezas simples (Parts).
+	Mundo abierto postapocalíptico (al estilo The Last of Us): unos 4 x 4 km con relieve realista,
+	ríos, lagos, playas, montañas nevadas, bosques y 16 zonas abandonadas unidas por carreteras.
 
-	Uso desde la barra de comandos de Studio (con el módulo en ServerStorage):
-		require(game.ServerStorage.MapBuilder).buildAll()
+	Va en ServerStorage como ModuleScript "MundoAbierto" con estos hijos:
+	  Motor       construye piezas y zonas
+	  Piezas      objetos prefabricados (casas, coches, vallas...)
+	  Datos       costa, ríos, carreteras, zonas y utilidades
+	  Terreno     relieve y suelo (se escribe con WriteVoxels)
+	  Vegetacion  abetos, robles, abedules, sotobosque, hierba alta, juncos, troncos y rocas
+	  Zonas       un ModuleScript por zona
 
-	En el juego, para cargar un mapa:
-		local MapBuilder = require(game.ServerStorage.MapBuilder)
-		local mapa, spawns = MapBuilder.load("Gasolinera")
-		-- spawns.A y spawns.B son listas de CFrames
+	Uso:
+		local Mundo = require(game.ServerStorage.MundoAbierto)
+		Mundo.instalar()   -- pone las piezas en Workspace.Mundo y genera el terreno
+]]
+local Mundo = {}
+
+-- Construye todas las piezas y devuelve el Model (sin terreno todavía)
+function Mundo.construir()
+	local Motor = require(script:WaitForChild("Motor"))
+	return Motor.build("Mundo", function(b, MB)
+		local W = require(script:WaitForChild("Datos"))(b, MB)
+		local T = require(script:WaitForChild("Terreno"))(W)
+		local V = require(script:WaitForChild("Vegetacion"))(b, MB, W, T)
+		Mundo.W, Mundo.T, Mundo.V = W, T, V
+		-- Las zonas pueden plantar árboles sueltos
+		local KINDS = { roble = V.oak, pino = V.pine, abeto = V.pine, muerto = V.dead, abedul = V.birch }
+		function W.tree(x, z, kind, s)
+			(KINDS[kind] or V.oak)(x, z, s or 1)
+		end
+
+		b.model:SetAttribute("Nombre", "Mundo Abierto")
+
+		b:zone("Carreteras")
+		W.buildRoads()
+		W.buildBridges()
+		W.buildCars()
+
+		local zones = script:WaitForChild("Zonas"):GetChildren()
+		table.sort(zones, function(a, c)
+			return a.Name < c.Name
+		end)
+		for _, module in ipairs(zones) do
+			if module:IsA("ModuleScript") then
+				b:zone(module.Name)
+				require(module)(b, MB, W)
+			end
+		end
+
+		b:zone("Bosque")
+		Mundo.vegetacion = V.buildAll({ trees = 2600, bushes = 1100, tufts = 4500, reeds = 450, riverRocks = 160, logs = 140, stumps = 160, rocks = 320 })
+		b:zone(nil)
+		W.buildBounds()
+	end)
+end
+
+-- Escribe el terreno (tarda un poco). progress(hechos, total) es opcional.
+function Mundo.generarTerreno(progress)
+	local terrain = workspace.Terrain
+	terrain:Clear()
+	Mundo.T.generate(terrain, progress)
+end
+
+-- Todo en uno: piezas en Workspace.Mundo y terreno
+function Mundo.instalar(progress)
+	local viejo = workspace:FindFirstChild("Mundo")
+	if viejo then
+		viejo:Destroy()
+	end
+	local modelo = Mundo.construir()
+	modelo.Parent = workspace
+	Mundo.generarTerreno(progress)
+	return modelo
+end
+
+return Mundo
+]=]
+local FUENTES = {}
+FUENTES["Motor"] = [=[
+--[[
+	Motor del mundo abierto: construye el mundo con piezas (Parts) agrupadas por zonas.
+	Es independiente de cualquier otro proyecto: solo lo usa ServerStorage.MundoAbierto.
 ]]
 
-local MapBuilder = {}
-MapBuilder.Props = {}
-
-local CONTAINER_NAME = "MapasDuelo"
+local Motor = {}
+Motor.Props = {}
 
 -- =====================================================================
 --  Utilidades
@@ -42,7 +116,7 @@ end
 local function rgb(c)
 	return Color3.fromRGB(c[1], c[2], c[3])
 end
-MapBuilder.rgb = rgb
+Motor.rgb = rgb
 
 -- =====================================================================
 --  Constructor
@@ -53,20 +127,20 @@ Builder.__index = Builder
 local Group = {}
 Group.__index = Group
 
-function MapBuilder.new(name)
+function Motor.new(name)
 	local model = Instance.new("Model")
 	model.Name = name
-	local self = setmetatable({ model = model, mirrored = false, folders = {} }, Builder)
+	local self = setmetatable({ model = model, folders = {} }, Builder)
 	self:folder("Mapa")
 	self:folder("Decoracion")
 	self:folder("Spawns")
 	return self
 end
 
-local TOP_LEVEL = { Spawns = true, Terreno = true, Limites = true }
+local TOP_LEVEL = { Spawns = true, Limites = true }
 
 function Builder:folder(name)
-	-- Con zone() las piezas van a Zonas/<zona>/<carpeta>; spawns, terreno y límites siempre arriba
+	-- Con zone() las piezas van a Zonas/<zona>/<carpeta>; los spawns y los límites siempre arriba
 	local key = (self.zoneName and not TOP_LEVEL[name]) and (self.zoneName .. "/" .. name) or name
 	local folder = self.folders[key]
 	if not folder then
@@ -100,17 +174,13 @@ function Builder:zone(name)
 	self.zoneName, self.zoneFolder = name, folder
 end
 
--- Posición en grados. Con symmetric() todo se repite reflejado en X (x -> -x).
+-- Posición en studs y giro en grados
 function Builder:cframe(pos, rot)
-	local x, y, z = pos[1], pos[2], pos[3]
 	local rx, ry, rz = 0, 0, 0
 	if rot then
 		rx, ry, rz = rot[1] or 0, rot[2] or 0, rot[3] or 0
 	end
-	if self.mirrored then
-		x, ry, rz = -x, -ry, -rz
-	end
-	return CFrame.new(x, y, z) * CFrame.fromEulerAnglesYXZ(math.rad(rx), math.rad(ry), math.rad(rz))
+	return CFrame.new(pos[1], pos[2], pos[3]) * CFrame.fromEulerAnglesYXZ(math.rad(rx), math.rad(ry), math.rad(rz))
 end
 
 function Builder:part(className, p)
@@ -139,6 +209,10 @@ function Builder:part(className, p)
 	if p.shadow == false then
 		part.CastShadow = false
 	end
+	if p.query == false then
+		part.CanQuery = false
+		part.CanTouch = false
+	end
 	part.Parent = self:folder(folder)
 	return part
 end
@@ -164,6 +238,16 @@ function Builder:ball(p)
 	return self:part("Part", q)
 end
 
+-- Elipsoide (bola estirada en cada eje): un bloque con SpecialMesh de esfera.
+-- Sirve para copas de árbol, arbustos y matas con formas irregulares en vez de bolas perfectas
+function Builder:blob(p)
+	local part = self:part("Part", p)
+	local mesh = Instance.new("SpecialMesh")
+	mesh.MeshType = Enum.MeshType.Sphere
+	mesh.Parent = part
+	return part
+end
+
 -- Cilindro: axis = "y" (vertical, por defecto), "x" o "z"
 function Builder:cylinder(p)
 	local q = copy(p)
@@ -182,13 +266,6 @@ function Builder:cylinder(p)
 end
 
 -- Ejecuta fn dos veces: normal y reflejado en X, para que ambos lados del duelo sean iguales
-function Builder:symmetric(fn)
-	fn(self)
-	self.mirrored = true
-	fn(self)
-	self.mirrored = false
-end
-
 -- Grupo con origen y giro propios (para muebles, coches, contenedores...)
 function Builder:at(origin, rotY)
 	return setmetatable({ b = self, origin = origin, rotY = rotY or 0 }, Group)
@@ -209,54 +286,15 @@ function Group:at(localPos, rotY)
 	return self.b:at({ self.origin[1] + x, self.origin[2] + localPos[2], self.origin[3] + z }, self.rotY + (rotY or 0))
 end
 
-for _, method in ipairs({ "box", "wedge", "truss", "ball", "cylinder" }) do
+for _, method in ipairs({ "box", "wedge", "truss", "ball", "cylinder", "blob" }) do
 	Group[method] = function(self, p)
 		return self.b[method](self.b, self:transform(p))
 	end
 end
 
 -- =====================================================================
---  Spawns, límites, carteles, luces e iluminación
+--  Puntos de aparición, carteles y luces
 -- =====================================================================
--- yaw en grados: 0 mira hacia -Z, -90 mira hacia +X
-function Builder:spawn(team, pos, yaw)
-	if self.mirrored then
-		team = (team == "A") and "B" or "A"
-	end
-	local part = self:part("Part", {
-		name = "Spawn" .. team,
-		size = { 4, 1, 4 },
-		pos = pos,
-		rot = { 0, yaw or 0, 0 },
-		color = team == "A" and { 60, 120, 255 } or { 255, 70, 70 },
-		transparency = 1,
-		collide = false,
-		shadow = false,
-		folder = "Spawns",
-	})
-	part.CanQuery = false
-	part.CanTouch = false
-	part:SetAttribute("Team", team)
-	return part
-end
-
--- Paredes invisibles alrededor de la zona de juego (y techo)
-function Builder:bounds(minX, maxX, minZ, maxZ, height)
-	local w = 2
-	local cx, cz = (minX + maxX) / 2, (minZ + maxZ) / 2
-	local sx, sz = maxX - minX, maxZ - minZ
-	local walls = {
-		{ { sx + 2 * w, height, w }, { cx, height / 2, minZ - w / 2 } },
-		{ { sx + 2 * w, height, w }, { cx, height / 2, maxZ + w / 2 } },
-		{ { w, height, sz }, { minX - w / 2, height / 2, cz } },
-		{ { w, height, sz }, { maxX + w / 2, height / 2, cz } },
-		{ { sx + 2 * w, w, sz + 2 * w }, { cx, height + w / 2, cz } },
-	}
-	for _, wall in ipairs(walls) do
-		self:part("Part", { name = "Limite", size = wall[1], pos = wall[2], transparency = 1, shadow = false, folder = "Limites" })
-	end
-end
-
 -- Punto de aparición real (SpawnLocation neutral) para mundos abiertos: Roblox lo usa al reaparecer
 function Builder:spawnLocation(pos, yaw)
 	local part = self:part("SpawnLocation", {
@@ -277,68 +315,8 @@ function Builder:spawnLocation(pos, yaw)
 	return part
 end
 
--- =====================================================================
---  Terreno
---  Se guarda como piezas invisibles en la carpeta "Terreno" y se convierte en terreno de verdad
---  (hierba, agua, roca...) al cargar el mapa. Se aplica en orden: lo de después pisa lo de antes,
---  así que Air sirve para excavar (ríos, lagos, canteras).
---  op = { shape = "Block" | "Ball" | "Cylinder" | "Wedge", mat = "Grass", pos = { x, y, z },
---         size = { x, y, z } (Block/Wedge), radius (Ball/Cylinder), height (Cylinder), rot = { 0, giro, 0 } }
--- =====================================================================
-local TERRAIN_CHUNK = 512
-
-function Builder:terrainPiece(shape, mat, size, pos, rot)
-	self.terrainCount = (self.terrainCount or 0) + 1
-	local part = self:part("Part", { name = "Terreno", size = size, pos = pos, rot = rot, transparency = 1, collide = false, shadow = false, folder = "Terreno" })
-	part.CanQuery = false
-	part.CanTouch = false
-	part:SetAttribute("Material", mat)
-	part:SetAttribute("Forma", shape)
-	part:SetAttribute("Orden", self.terrainCount)
-	return part
-end
-
-function Builder:terrain(op)
-	local shape = op.shape or "Block"
-	if shape == "Ball" then
-		return self:terrainPiece(shape, op.mat, { op.radius * 2, op.radius * 2, op.radius * 2 }, op.pos)
-	elseif shape == "Cylinder" then
-		return self:terrainPiece(shape, op.mat, { op.radius * 2, op.height, op.radius * 2 }, op.pos, op.rot)
-	end
-	-- Bloques y cuñas grandes se trocean (una pieza no puede medir más de 2048 y el terreno se rellena mejor por partes)
-	local sx, sy, sz = op.size[1], op.size[2], op.size[3]
-	local nx = math.ceil(sx / TERRAIN_CHUNK)
-	local nz = (shape == "Block") and math.ceil(sz / TERRAIN_CHUNK) or 1
-	local yaw = op.rot and op.rot[2] or 0
-	for i = 1, nx do
-		for k = 1, nz do
-			local px, pz = sx / nx, sz / nz
-			local ox, oz = -sx / 2 + (i - 0.5) * px, -sz / 2 + (k - 0.5) * pz
-			local wx, wz = rotateY(ox, oz, yaw)
-			self:terrainPiece(shape, op.mat, { px, sy, pz }, { op.pos[1] + wx, op.pos[2], op.pos[3] + wz }, op.rot)
-		end
-	end
-end
-
--- Colores de los materiales del terreno y aspecto del agua
--- settings = { colors = { Grass = { r, g, b }, ... }, water = { color, transparency, waveSize, waveSpeed, reflectance } }
-function Builder:terrainSettings(settings)
-	local folder = self:folder("Terreno")
-	for mat, color in pairs(settings.colors or {}) do
-		folder:SetAttribute("Color_" .. mat, rgb(color))
-	end
-	local w = settings.water
-	if w then
-		folder:SetAttribute("AguaColor", rgb(w.color or { 40, 70, 80 }))
-		folder:SetAttribute("AguaTransparencia", w.transparency or 0.3)
-		folder:SetAttribute("AguaOlas", w.waveSize or 0.15)
-		folder:SetAttribute("AguaVelocidad", w.waveSpeed or 8)
-		folder:SetAttribute("AguaReflejo", w.reflectance or 0.3)
-	end
-end
-
 -- Cartel con texto en una cara de la pieza (SurfaceGui)
-function MapBuilder.sign(part, text, opts)
+function Motor.sign(part, text, opts)
 	opts = opts or {}
 	local gui = Instance.new("SurfaceGui")
 	gui.Name = "Cartel"
@@ -393,7 +371,7 @@ function MapBuilder.sign(part, text, opts)
 end
 
 -- kind: "Point", "Surface" o "Spot"
-function MapBuilder.light(part, kind, opts)
+function Motor.light(part, kind, opts)
 	opts = opts or {}
 	local light = Instance.new(kind .. "Light")
 	light.Color = rgb(opts.color or { 255, 240, 220 })
@@ -408,248 +386,65 @@ function MapBuilder.light(part, kind, opts)
 	return light
 end
 
--- Guarda la iluminación del mapa (se aplica con MapBuilder.applyLighting)
-function Builder:lighting(settings)
-	local config = Instance.new("Configuration")
-	config.Name = "Iluminacion"
-	config.Parent = self.model
-	for name, value in pairs(settings.lighting or {}) do
-		if type(value) == "table" then
-			value = rgb(value)
-		end
-		config:SetAttribute(name, value)
+-- Fuego realista sobre una pieza (la pieza es la base de las llamas):
+-- llamas (Fire), humo (Smoke), chispas (ParticleEmitter) y una luz que parpadea en el cliente.
+-- opts: size (2 a 30), smoke (false = sin humo), light (false = sin luz), range, brightness
+local CollectionService = game:GetService("CollectionService")
+function Motor.fire(part, opts)
+	opts = opts or {}
+	local size = opts.size or 4
+	local fire = Instance.new("Fire")
+	fire.Size = size
+	fire.Heat = opts.heat or 9
+	fire.Color = rgb(opts.color or { 255, 138, 52 })
+	fire.SecondaryColor = rgb(opts.secondary or { 255, 62, 18 })
+	fire.Parent = part
+	if opts.smoke ~= false then
+		local smoke = Instance.new("Smoke")
+		smoke.Color = rgb(opts.smokeColor or { 74, 70, 66 })
+		smoke.Opacity = opts.smokeOpacity or 0.12
+		smoke.RiseVelocity = opts.rise or 5
+		smoke.Size = opts.smokeSize or size * 0.9
+		smoke.Parent = part
 	end
-	if settings.atmosphere then
-		local a = settings.atmosphere
-		local atmosphere = Instance.new("Atmosphere")
-		atmosphere.Density = a.density or 0.3
-		atmosphere.Offset = a.offset or 0
-		atmosphere.Color = rgb(a.color or { 200, 170, 160 })
-		atmosphere.Decay = rgb(a.decay or { 110, 90, 90 })
-		atmosphere.Glare = a.glare or 0
-		atmosphere.Haze = a.haze or 1
-		atmosphere.Parent = config
+	local sparks = Instance.new("ParticleEmitter")
+	sparks.Name = "Chispas"
+	sparks.Color = ColorSequence.new(Color3.fromRGB(255, 176, 80), Color3.fromRGB(255, 74, 20))
+	sparks.LightEmission = 1
+	sparks.Size = NumberSequence.new(0.16, 0)
+	sparks.Lifetime = NumberRange.new(0.8, 1.8)
+	sparks.Rate = math.floor(2 + size * 1.2)
+	sparks.Speed = NumberRange.new(3, 7)
+	sparks.SpreadAngle = Vector2.new(25, 25)
+	sparks.Acceleration = Vector3.new(0, 3, 0)
+	sparks.Drag = 1.5
+	sparks.EmissionDirection = Enum.NormalId.Top
+	sparks.Parent = part
+	if opts.light ~= false then
+		local light = Motor.light(part, "Point", { color = { 255, 150, 70 }, brightness = opts.brightness or 2, range = opts.range or 20, shadows = true })
+		light:SetAttribute("Base", light.Brightness)
+		CollectionService:AddTag(light, "LuzFuego")
 	end
-	if settings.colorCorrection then
-		local c = settings.colorCorrection
-		local effect = Instance.new("ColorCorrectionEffect")
-		effect.Brightness = c.brightness or 0
-		effect.Contrast = c.contrast or 0
-		effect.Saturation = c.saturation or 0
-		effect.TintColor = rgb(c.tint or { 255, 255, 255 })
-		effect.Parent = config
-	end
-	if settings.clouds then
-		local c = settings.clouds
-		local clouds = Instance.new("Clouds")
-		clouds.Cover = c.cover or 0.5
-		clouds.Density = c.density or 0.5
-		clouds.Color = rgb(c.color or { 255, 255, 255 })
-		clouds.Parent = config
-	end
-	if settings.bloom then
-		local b = settings.bloom
-		local bloom = Instance.new("BloomEffect")
-		bloom.Intensity = b.intensity or 0.6
-		bloom.Size = b.size or 24
-		bloom.Threshold = b.threshold or 0.9
-		bloom.Parent = config
-	end
-	if settings.sunRays then
-		local r = settings.sunRays
-		local rays = Instance.new("SunRaysEffect")
-		rays.Intensity = r.intensity or 0.08
-		rays.Spread = r.spread or 0.6
-		rays.Parent = config
-	end
-	if settings.technology then
-		config:SetAttribute("Tecnologia", settings.technology)
-	end
-	return config
+	CollectionService:AddTag(part, "Fuego")
+	return fire
 end
 
 -- =====================================================================
---  Piezas reutilizables (Props.luau)
+--  Piezas reutilizables (Piezas.luau)
 -- =====================================================================
-require(script:WaitForChild("Props"))(MapBuilder)
+require(script.Parent:WaitForChild("Piezas"))(Motor)
 
--- =====================================================================
---  Construir, cargar e iluminar
--- =====================================================================
-local function getMaps(maps)
-	if maps then
-		return maps
-	end
-	local list = {}
-	for _, module in ipairs(script:WaitForChild("Mapas"):GetChildren()) do
-		if module:IsA("ModuleScript") then
-			list[module.Name] = require(module)
-		end
-	end
-	return list
-end
-
--- Construye un mapa y devuelve su Model (en el origen)
-function MapBuilder.build(name, buildFn)
-	local b = MapBuilder.new(name)
-	buildFn(b, MapBuilder)
+-- Construye el mundo y devuelve su Model (sin ponerlo en Workspace)
+function Motor.build(name, buildFn)
+	local b = Motor.new(name)
+	buildFn(b, Motor)
 	b.model.WorldPivot = CFrame.new(0, 0, 0)
 	return b.model
 end
 
--- Construye todos los mapas dentro de ServerStorage.MapasDuelo (o en parent)
-function MapBuilder.buildAll(parent, maps)
-	parent = parent or game:GetService("ServerStorage")
-	local folder = parent:FindFirstChild(CONTAINER_NAME)
-	if not folder then
-		folder = Instance.new("Folder")
-		folder.Name = CONTAINER_NAME
-		folder.Parent = parent
-	end
-	for name, buildFn in pairs(getMaps(maps)) do
-		local old = folder:FindFirstChild(name)
-		if old then
-			old:Destroy()
-		end
-		MapBuilder.build(name, buildFn).Parent = folder
-	end
-	return folder
-end
-
--- Aplica la iluminación guardada en el mapa a Lighting
-function MapBuilder.applyLighting(map)
-	local Lighting = game:GetService("Lighting")
-	local config = map:FindFirstChild("Iluminacion")
-	if not config then
-		return
-	end
-	for name, value in pairs(config:GetAttributes()) do
-		if name == "Tecnologia" then
-			-- Future da sombras a las luces y brillo al neón (solo se puede cambiar desde Studio)
-			pcall(function()
-				Lighting.Technology = Enum.Technology[value]
-			end)
-		else
-			Lighting[name] = value
-		end
-	end
-	-- Quita los efectos del mapa anterior y los del mismo tipo que trae este mapa
-	for _, child in ipairs(Lighting:GetChildren()) do
-		if child:GetAttribute("DeMapa") or config:FindFirstChildOfClass(child.ClassName) then
-			child:Destroy()
-		end
-	end
-	local terrain = workspace.Terrain
-	for _, child in ipairs(terrain:GetChildren()) do
-		if child:IsA("Clouds") then
-			child:Destroy()
-		end
-	end
-	for _, child in ipairs(config:GetChildren()) do
-		local clone = child:Clone()
-		clone:SetAttribute("DeMapa", true)
-		clone.Parent = child:IsA("Clouds") and terrain or Lighting
-	end
-end
-
--- Convierte la carpeta "Terreno" del mapa en terreno de verdad. Devuelve true si el mapa tenía terreno.
-function MapBuilder.applyTerrain(map)
-	local folder = map:FindFirstChild("Terreno")
-	if not folder then
-		return false
-	end
-	local terrain = workspace.Terrain
-	terrain:Clear()
-	for name, value in pairs(folder:GetAttributes()) do
-		local mat = name:match("^Color_(.+)$")
-		if mat then
-			terrain:SetMaterialColor(Enum.Material[mat], value)
-		elseif name == "AguaColor" then
-			terrain.WaterColor = value
-		elseif name == "AguaTransparencia" then
-			terrain.WaterTransparency = value
-		elseif name == "AguaOlas" then
-			terrain.WaterWaveSize = value
-		elseif name == "AguaVelocidad" then
-			terrain.WaterWaveSpeed = value
-		elseif name == "AguaReflejo" then
-			terrain.WaterReflectance = value
-		end
-	end
-	local pieces = folder:GetChildren()
-	table.sort(pieces, function(a, c)
-		return (a:GetAttribute("Orden") or 0) < (c:GetAttribute("Orden") or 0)
-	end)
-	for i, part in ipairs(pieces) do
-		local mat = Enum.Material[part:GetAttribute("Material")]
-		local shape = part:GetAttribute("Forma")
-		if shape == "Ball" then
-			terrain:FillBall(part.Position, part.Size.X / 2, mat)
-		elseif shape == "Cylinder" then
-			terrain:FillCylinder(part.CFrame, part.Size.Y, part.Size.X / 2, mat)
-		elseif shape == "Wedge" then
-			terrain:FillWedge(part.CFrame, part.Size, mat)
-		else
-			terrain:FillBlock(part.CFrame, part.Size, mat)
-		end
-		if i % 20 == 0 then
-			task.wait()
-		end
-	end
-	folder:Destroy()
-	return true
-end
-
--- Devuelve { A = { CFrame, ... }, B = { CFrame, ... } } (y otras listas si hay más equipos, como "Mundo")
-function MapBuilder.getSpawns(map)
-	local spawns = { A = {}, B = {} }
-	local folder = map:FindFirstChild("Spawns")
-	if folder then
-		for _, part in ipairs(folder:GetChildren()) do
-			local team = part:GetAttribute("Team")
-			if team then
-				spawns[team] = spawns[team] or {}
-				table.insert(spawns[team], part.CFrame + Vector3.new(0, 3, 0))
-			end
-		end
-	end
-	return spawns
-end
-
--- Pone en Workspace un mapa ya construido (quitando el anterior) y aplica su iluminación y su terreno
-function MapBuilder.show(map, name)
-	local current = workspace:FindFirstChild("MapaActual")
-	if current then
-		if current:GetAttribute("ConTerreno") then
-			workspace.Terrain:Clear()
-		end
-		current:Destroy()
-	end
-	map.Name = "MapaActual"
-	map:SetAttribute("Mapa", name)
-	map.Parent = workspace
-	MapBuilder.applyLighting(map)
-	if MapBuilder.applyTerrain(map) then
-		map:SetAttribute("ConTerreno", true)
-	end
-	return map, MapBuilder.getSpawns(map)
-end
-
--- Pone un mapa guardado en ServerStorage en Workspace (quitando el anterior) y aplica su iluminación
-function MapBuilder.load(name, position)
-	local folder = game:GetService("ServerStorage"):FindFirstChild(CONTAINER_NAME)
-	local template = folder and folder:FindFirstChild(name)
-	assert(template, "No existe el mapa " .. tostring(name) .. ". Ejecuta MapBuilder.buildAll() primero.")
-	local map = template:Clone()
-	if position then
-		map:PivotTo(CFrame.new(position))
-	end
-	return MapBuilder.show(map, name)
-end
-
-return MapBuilder
+return Motor
 ]=]
-local FUENTE_PROPS = [=[
+FUENTES["Piezas"] = [=[
 -- Biblioteca de piezas detalladas. Cada función recibe g (constructor o grupo) y crea el objeto.
 return function(MB)
 	local P = MB.Props
@@ -2184,20 +1979,36 @@ return function(MB)
 		t:wedge({ name = "Tienda", size = { w, h, d / 2 }, pos = { 0, h / 2, d / 4 }, rot = { 0, 180, 0 }, color = darker(c, 12), mat = "Fabric" })
 	end
 
-	-- Hoguera con luz
+	-- Hoguera: anillo de piedras irregulares, ceniza, leña en tipi, brasas y fuego real (llamas, humo y chispas)
 	function P.campfire(g, pos, withLight)
 		local f = g:at(pos, 0)
-		for i = 0, 5 do
-			local a = math.rad(i * 60)
-			f:ball({ name = "Piedra", diameter = 1.1, pos = { math.cos(a) * 1.6, 0.4, math.sin(a) * 1.6 }, color = { 110, 108, 104 }, mat = "Slate", folder = "Decoracion" })
+		for i = 0, 8 do
+			local a = i * 40 + (i * 17) % 13
+			local r = math.rad(a)
+			local v = (i % 3) * 8
+			f:blob({ name = "Piedra", size = { 1.5 + (i % 3) * 0.3, 0.9 + (i % 2) * 0.3, 1.1 + ((i + 1) % 3) * 0.25 }, pos = { math.cos(r) * 2.1, 0.3, math.sin(r) * 2.1 }, rot = { (i * 23) % 20 - 10, -a, (i * 31) % 16 - 8 }, color = { 100 + v, 98 + v, 94 + v }, mat = "Slate", folder = "Decoracion" })
 		end
-		for _, r in ipairs({ 0, 60, 120 }) do
-			f:box({ name = "Lena", size = { 2.6, 0.5, 0.5 }, pos = { 0, 0.5, 0 }, rot = { 0, r, 18 }, color = { 80, 58, 40 }, mat = "Wood", folder = "Decoracion" })
+		f:cylinder({ name = "Ceniza", length = 0.2, diameter = 3.4, pos = { 0, 0.05, 0 }, color = { 52, 50, 48 }, mat = "Ground", folder = "Decoracion" })
+		for i = 0, 4 do
+			local r = math.rad(i * 72 + 10)
+			local lena = P.rod(f, { math.cos(r) * 1.5, 0.1, math.sin(r) * 1.5 }, { math.cos(r) * 0.15, 2.2, math.sin(r) * 0.15 }, 0.36, { 74, 54, 38 }, "Wood", "Decoracion")
+			lena.Name = "Lena"
 		end
-		local fire = f:ball({ name = "Fuego", diameter = 1.4, pos = { 0, 1.2, 0 }, color = { 255, 140, 40 }, mat = "Neon", transparency = 0.15, folder = "Decoracion", shadow = false })
-		if withLight ~= false then
-			MB.light(fire, "Point", { color = { 255, 150, 70 }, brightness = 1.8, range = 18, shadows = true })
+		local fire = f:box({ name = "Fuego", size = { 1.6, 0.3, 1.6 }, pos = { 0, 0.3, 0 }, color = { 255, 110, 30 }, mat = "Neon", folder = "Decoracion", shadow = false })
+		MB.fire(fire, { size = 5, light = withLight ~= false, range = 22 })
+		return fire
+	end
+
+	-- Bidón oxidado con fuego dentro (para calentarse en los campamentos)
+	function P.fireBarrel(g, pos)
+		local f = g:at(pos, 0)
+		f:cylinder({ name = "Bidon", length = 3.6, diameter = 2.6, pos = { 0, 1.8, 0 }, color = { 112, 72, 48 }, mat = "CorrodedMetal" })
+		for _, y in ipairs({ 0.9, 2.7 }) do
+			f:cylinder({ name = "Aro", length = 0.2, diameter = 2.7, pos = { 0, y, 0 }, color = { 86, 58, 42 }, mat = "CorrodedMetal", folder = "Decoracion" })
 		end
+		local fire = f:box({ name = "Fuego", size = { 2, 0.3, 2 }, pos = { 0, 3.45, 0 }, color = { 255, 110, 30 }, mat = "Neon", folder = "Decoracion", shadow = false })
+		MB.fire(fire, { size = 4, range = 20, brightness = 1.8 })
+		return fire
 	end
 
 	-- Helicóptero militar estrellado
@@ -2212,7 +2023,9 @@ return function(MB)
 			hcp:box({ name = "Pala", size = { 26 - i * 6, 0.3, 1.2 }, pos = { -0.8, 6.8 - i * 0.6, 0 }, rot = { 0, r, 12 + i * 6 }, color = { 40, 40, 40 }, mat = "Metal", folder = "Decoracion" })
 		end
 		P.debris(hcp, { 6, 0, -4 }, 0.8)
-		hcp:ball({ name = "Humo", diameter = 6, pos = { 0, 11, -2 }, color = { 60, 60, 60 }, transparency = 0.5, folder = "Decoracion", shadow = false })
+		-- El motor todavía arde y echa una columna de humo negro
+		local fuego = hcp:box({ name = "Fuego", size = { 3, 0.5, 3 }, pos = { 0, 6.4, -2 }, color = { 60, 40, 30 }, transparency = 1, folder = "Decoracion", shadow = false })
+		MB.fire(fuego, { size = 7, range = 26, smokeColor = { 30, 28, 28 }, smokeOpacity = 0.35, smokeSize = 9, rise = 9 })
 	end
 
 	-- Vía de tren entre dos puntos: balasto, dos raíles y traviesas opcionales
@@ -2378,69 +2191,10 @@ return function(MB)
 	end
 end
 ]=]
-local FUENTE_MUNDO = [=[
---[[
-	Mundo abierto postapocalíptico (al estilo The Last of Us): unos 4 x 4 km de terreno con costa,
-	ríos, lagos, montañas y bosques, y 16 zonas abandonadas unidas por carreteras.
-
-	Va en su propio ModuleScript (ServerStorage.MundoAbierto) con dos hijos:
-	  - Mundo: datos del mapa (costa, ríos, carreteras, zonas) y utilidades.
-	  - Zonas: un ModuleScript por zona.
-	ConstruirMundoAbierto.luau lo crea y lo pone en Workspace con su terreno.
-]]
-return function(b, MB)
-	local W = require(script:WaitForChild("Mundo"))(b, MB)
-	b.model:SetAttribute("Nombre", "Mundo Abierto")
-	b.model:SetAttribute("Tipo", "MundoAbierto")
-	b.model:SetAttribute("Jugadores", 100)
-
-	W.buildTerrain()
-
-	b:zone("Carreteras")
-	W.buildRoads()
-	W.buildBridges()
-	W.buildCars()
-
-	local zones = script:WaitForChild("Zonas"):GetChildren()
-	table.sort(zones, function(a, c)
-		return a.Name < c.Name
-	end)
-	for _, module in ipairs(zones) do
-		if module:IsA("ModuleScript") then
-			b:zone(module.Name)
-			require(module)(b, MB, W)
-		end
-	end
-
-	b:zone("Bosque")
-	W.buildForest(2400)
-	b:zone(nil)
-	W.buildBounds()
-
-	-- Tarde nublada con niebla: verde apagado y luz cálida entre las nubes
-	b:lighting({
-		technology = "Future",
-		lighting = {
-			ClockTime = 16.4,
-			Brightness = 2.2,
-			Ambient = { 96, 104, 92 },
-			OutdoorAmbient = { 136, 144, 128 },
-			ExposureCompensation = 0.1,
-			ShadowSoftness = 0.35,
-			EnvironmentDiffuseScale = 0.6,
-			EnvironmentSpecularScale = 0.4,
-		},
-		atmosphere = { density = 0.38, offset = 0.12, color = { 200, 206, 190 }, decay = { 120, 130, 110 }, glare = 0.6, haze = 2.2 },
-		colorCorrection = { contrast = 0.1, saturation = -0.15, tint = { 240, 248, 232 } },
-		clouds = { cover = 0.72, density = 0.6, color = { 214, 218, 210 } },
-		bloom = { intensity = 0.3, size = 24, threshold = 0.95 },
-		sunRays = { intensity = 0.12, spread = 0.7 },
-	})
-end
-]=]
-local FUENTE_DATOS = [=[
--- Datos y utilidades del mundo abierto: costa, ríos, lagos, montañas, carreteras, vía del tren,
--- zonas, bosque y coches abandonados. X crece hacia el este y Z hacia el sur; el mundo va de -2048 a 2048.
+FUENTES["Datos"] = [=[
+-- Datos y utilidades del mundo abierto: costa, ríos, lagos, carreteras, vía del tren, zonas y
+-- coches abandonados. X crece hacia el este y Z hacia el sur; el mundo va de -2048 a 2048.
+-- El relieve (colinas, montañas, valles y playas) se calcula en Terreno.luau a partir de estos datos.
 return function(b, MB)
 	local P = MB.Props
 	local W = {}
@@ -2456,8 +2210,6 @@ return function(b, MB)
 		{ 560, 1390 }, { 300, 1420 }, { 0, 1440 }, { -300, 1420 }, { -560, 1440 }, { -820, 1400 }, { -1080, 1460 },
 		{ -1300, 1420 }, { -1500, 1500 }, { -1700, 1480 }, { -2048, 1500 },
 	}
-	W.sea = { { 1150, 2048, -2048, 2048 }, { -2048, 2048, 1250, 2048 }, { 700, 2048, 650, 2048 } }
-	W.land = { { -2048, 1150, -2048, 650 }, { -2048, 700, 650, 1250 }, { 700, 1100, 650, 950 } }
 
 	-- Ríos (los puntos van de la fuente a la desembocadura)
 	W.rivers = {
@@ -2470,22 +2222,6 @@ return function(b, MB)
 	}
 	W.lakes = { { -1200, -30, 70 }, { -1250, 340, 90 }, { -150, -900, 100 } }
 
-	-- Montañas de roca en los bordes norte y oeste, y colinas de hierba en el interior: { x, z, radio, cima }
-	W.hills = {}
-	for _, x in ipairs({ -1960, -1420, -1080, -760, 40, 380, 720, 1060 }) do
-		table.insert(W.hills, { x, -2048, 180, 90, "Rock" })
-	end
-	for _, z in ipairs({ -1620, -1280, -940, -600, -260, 80, 420, 760, 1100, 1340 }) do
-		table.insert(W.hills, { -2048, z, 180, 90, "Rock" })
-	end
-	for _, h in ipairs({
-		{ -450, -1450, 180, 30 }, { 100, -750, 180, 30 }, { 600, -1000, 180, 30 }, { 700, 250, 220, 45 },
-		{ -560, 330, 180, 30 }, { 300, 150, 180, 30 }, { 1200, -1100, 220, 40 }, { 60, -1700, 180, 30 },
-		{ -760, 1240, 180, 25 }, { -1850, -1300, 180, 35 }, { -700, -1150, 180, 30 }, { -80, -20, 200, 35 },
-		{ -1640, -300, 180, 30 }, { -1700, 880, 180, 30 },
-	}) do
-		table.insert(W.hills, { h[1], h[2], h[3], h[4], "Grass" })
-	end
 	-- Meseta de la Colina Alta y cantera
 	W.plateau = { x = 1072, z = -228, top = 16, rTop = 120, rBase = 260 }
 	W.quarry = { x = 1250, z = -1670 }
@@ -2530,6 +2266,16 @@ return function(b, MB)
 		Refugio = { 870, 1190, 530, 830 },
 	}
 
+	-- Suelo de cada zona (material del terreno): Grass = césped corto, LeafyGrass = maleza alta,
+	-- Ground = tierra, Mud = barro. Las zonas que no aparecen usan césped corto.
+	W.zoneGround = {
+		Granjas = "Grass", Penal = "Ground", ZonaProhibida = "Mud", Antena = "Ground", Estacion = "Ground",
+		Refugio = "Ground", Cantera = "Rock", Megatienda = "Ground", Motel = "LeafyGrass", Ladera = "LeafyGrass",
+		LagoSereno = "LeafyGrass", Comisaria = "Grass",
+	}
+	-- Zonas que no se aplanan a altura 0 (la meseta y la cantera tienen su propio relieve)
+	W.zoneNoFlat = { ColinaAlta = true }
+
 	-- =================================================================
 	--  Utilidades
 	-- =================================================================
@@ -2550,30 +2296,13 @@ return function(b, MB)
 		local qx, qz = ax + dx * t - px, az + dz * t - pz
 		return math.sqrt(qx * qx + qz * qz)
 	end
+	W.segDist = segDist
 	function W.polylineDist(px, pz, pts)
 		local best = math.huge
 		for i = 1, #pts - 1 do
 			best = math.min(best, segDist(px, pz, pts[i][1], pts[i][2], pts[i + 1][1], pts[i + 1][2]))
 		end
 		return best
-	end
-
-	-- Altura del suelo (colinas, montañas y meseta; el resto es llano a 0)
-	function W.groundY(x, z)
-		local y = 0
-		for _, h in ipairs(W.hills) do
-			local dx, dz = x - h[1], z - h[2]
-			local d2 = dx * dx + dz * dz
-			if d2 < h[3] * h[3] then
-				y = math.max(y, h[4] - h[3] + math.sqrt(h[3] * h[3] - d2))
-			end
-		end
-		local p = W.plateau
-		local d = math.sqrt((x - p.x) ^ 2 + (z - p.z) ^ 2)
-		if d < p.rBase then
-			y = math.max(y, d <= p.rTop and p.top or p.top * (p.rBase - d) / (p.rBase - p.rTop))
-		end
-		return y
 	end
 
 	function W.inZone(x, z, margin)
@@ -2614,6 +2343,19 @@ return function(b, MB)
 	for _, p in ipairs(W.coast) do
 		table.insert(landPoly, p)
 	end
+	-- ¿Está dentro del contorno de tierra (sin contar la distancia a la costa)?
+	function W.inLandPoly(x, z)
+		local inside = false
+		local j = #landPoly
+		for i = 1, #landPoly do
+			local xi, zi, xj, zj = landPoly[i][1], landPoly[i][2], landPoly[j][1], landPoly[j][2]
+			if ((zi > z) ~= (zj > z)) and (x < (xj - xi) * (z - zi) / (zj - zi) + xi) then
+				inside = not inside
+			end
+			j = i
+		end
+		return inside
+	end
 	function W.isLand(x, z, margin)
 		local inside = false
 		local j = #landPoly
@@ -2636,95 +2378,6 @@ return function(b, MB)
 		end
 	end
 	W.eachSegment = eachSegment
-
-	-- =================================================================
-	--  Terreno: mar, tierra, costa, montañas, meseta, cantera, ríos y lagos
-	-- =================================================================
-	function W.buildTerrain()
-		b:terrainSettings({
-			colors = {
-				Grass = { 74, 98, 58 }, LeafyGrass = { 64, 88, 50 }, Ground = { 96, 84, 66 }, Mud = { 76, 66, 52 },
-				Rock = { 104, 104, 100 }, Sand = { 186, 174, 140 },
-			},
-			water = { color = { 44, 70, 68 }, transparency = 0.35, waveSize = 0.12, waveSpeed = 6, reflectance = 0.3 },
-		})
-		for _, r in ipairs(W.sea) do
-			local cx, cz, sx, sz = (r[1] + r[2]) / 2, (r[3] + r[4]) / 2, r[2] - r[1], r[4] - r[3]
-			b:terrain({ mat = "Sand", pos = { cx, -31, cz }, size = { sx, 6, sz } })
-			b:terrain({ mat = "Water", pos = { cx, -16, cz }, size = { sx, 24, sz } })
-		end
-		for _, r in ipairs(W.land) do
-			b:terrain({ mat = "Grass", pos = { (r[1] + r[2]) / 2, -12, (r[3] + r[4]) / 2 }, size = { r[2] - r[1], 24, r[4] - r[3] } })
-		end
-		-- Costa: tierra detrás de cada tramo, franja de arena y playa en cuesta hacia el mar
-		eachSegment(W.coast, function(a, c, len, yaw, mx, mz, ux, uz)
-			local nx, nz = uz, -ux
-			if nx + nz < 0 then
-				nx, nz = -nx, -nz
-			end
-			b:terrain({ mat = "Grass", pos = { mx - nx * 225, -12, mz - nz * 225 }, size = { len + 120, 24, 450 }, rot = { 0, yaw, 0 } })
-			b:terrain({ mat = "Sand", pos = { mx - nx * 15, -2, mz - nz * 15 }, size = { len + 60, 4, 30 }, rot = { 0, yaw, 0 } })
-			-- La cuña sube hacia +Z local: se gira para que la parte alta quede en tierra
-			local wedgeYaw = yaw
-			local lzx, lzz = math.sin(math.rad(yaw)), math.cos(math.rad(yaw))
-			if lzx * nx + lzz * nz > 0 then
-				wedgeYaw = yaw + 180
-			end
-			b:terrain({ shape = "Wedge", mat = "Sand", pos = { mx + nx * 120, -18, mz + nz * 120 }, size = { len + 60, 36, 240 }, rot = { 0, wedgeYaw, 0 } })
-		end)
-		for i = 2, #W.coast - 1 do
-			b:terrain({ shape = "Ball", mat = "Sand", pos = { W.coast[i][1], -70, W.coast[i][2] }, radius = 70 })
-		end
-		for _, h in ipairs(W.hills) do
-			b:terrain({ shape = "Ball", mat = h[5], pos = { h[1], h[4] - h[3], h[2] }, radius = h[3] })
-		end
-		local p = W.plateau
-		for i = 1, 8 do
-			b:terrain({ shape = "Cylinder", mat = "Grass", pos = { p.x, 2 * i - 1, p.z }, radius = p.rBase - (i - 1) * 20, height = 2 })
-		end
-		-- Cantera: roca y terrazas excavadas con una charca en el fondo
-		local q = W.quarry
-		b:terrain({ shape = "Cylinder", mat = "Rock", pos = { q.x, -30, q.z }, radius = 190, height = 60 })
-		for i, t in ipairs({ { 170, -12 }, { 130, -24 }, { 90, -36 }, { 55, -48 } }) do
-			b:terrain({ shape = "Cylinder", mat = "Air", pos = { q.x, (t[2] + 40) / 2, q.z }, radius = t[1], height = 40 - t[2] })
-			-- Rampa de roca para bajar a cada terraza
-			local a = math.rad(i * 95)
-			local r = t[1] + 10
-			b:terrain({ shape = "Wedge", mat = "Rock", pos = { q.x + math.cos(a) * r, t[2] + 6, q.z + math.sin(a) * r }, size = { 14, 12, 36 }, rot = { 0, -math.deg(a), 0 } })
-		end
-		b:terrain({ shape = "Cylinder", mat = "Water", pos = { q.x, -51, q.z }, radius = 38, height = 10 })
-
-		-- Ríos: orillas de barro, cauce excavado y agua
-		for _, river in ipairs(W.rivers) do
-			eachSegment(river.points, function(a, c, len, yaw, mx, mz)
-				b:terrain({ mat = "Mud", pos = { mx, -2, mz }, size = { len + 6, 4, river.width + 20 }, rot = { 0, yaw, 0 } })
-			end)
-			for i = 2, #river.points - 1 do
-				local pt = river.points[i]
-				b:terrain({ shape = "Cylinder", mat = "Mud", pos = { pt[1], -2, pt[2] }, radius = river.width / 2 + 10, height = 4 })
-			end
-		end
-		for _, l in ipairs(W.lakes) do
-			b:terrain({ shape = "Cylinder", mat = "Mud", pos = { l[1], -2, l[2] }, radius = l[3] + 12, height = 4 })
-		end
-		for _, mat in ipairs({ "Air", "Water" }) do
-			local y, h = (mat == "Air") and 18 or -10, (mat == "Air") and 44 or 12
-			for _, river in ipairs(W.rivers) do
-				local n = #river.points
-				eachSegment(river.points, function(a, c, len, yaw, mx, mz, ux, uz, i)
-					local extra = (river.mouth and i == n - 1) and 70 or 0
-					b:terrain({ mat = mat, pos = { mx + ux * extra / 2, y, mz + uz * extra / 2 }, size = { len + extra, h, river.width }, rot = { 0, yaw, 0 } })
-				end)
-				for i = 2, n - 1 do
-					local pt = river.points[i]
-					b:terrain({ shape = "Cylinder", mat = mat, pos = { pt[1], y, pt[2] }, radius = river.width / 2, height = h })
-				end
-			end
-			for _, l in ipairs(W.lakes) do
-				b:terrain({ shape = "Cylinder", mat = mat, pos = { l[1], (mat == "Air") and 18 or -11, l[2] }, radius = l[3], height = (mat == "Air") and 44 or 14 })
-			end
-		end
-	end
 
 	-- =================================================================
 	--  Carreteras con puentes, vía del tren y límites
@@ -2807,60 +2460,8 @@ return function(b, MB)
 	end
 
 	-- =================================================================
-	--  Bosque, rocas y coches abandonados
+	--  Coches abandonados en las carreteras
 	-- =================================================================
-	local OAK = { { 72, 100, 56 }, { 86, 114, 62 }, { 64, 90, 50 }, { 98, 112, 60 }, { 120, 110, 62 } }
-	local PINE = { { 48, 82, 56 }, { 56, 90, 60 }, { 42, 74, 50 } }
-	function W.tree(x, z, kind, s)
-		local y = W.groundY(x, z) - 0.6
-		if kind == "pino" then
-			local c = PINE[math.floor(W.rand() * #PINE) + 1]
-			b:cylinder({ name = "Tronco", length = 16 * s, diameter = 1.3 * s, pos = { x, y + 8 * s, z }, color = { 86, 64, 48 }, mat = "Wood" })
-			for i, t in ipairs({ { 10, 7 }, { 7.5, 11 }, { 4.6, 15 } }) do
-				b:cylinder({ name = "Copa", length = 3.6 * s, diameter = t[1] * s, pos = { x, y + t[2] * s, z }, color = c, mat = "LeafyGrass", folder = "Decoracion" })
-			end
-		elseif kind == "muerto" then
-			b:cylinder({ name = "Tronco", length = 12 * s, diameter = 1.2 * s, pos = { x, y + 6 * s, z }, color = { 104, 94, 84 }, mat = "Wood" })
-			P.segment(b, { x, y + 8 * s, z }, { x + 3 * s, y + 12 * s, z + 1 * s }, 0.5 * s, { 104, 94, 84 }, "Wood", "Decoracion")
-			P.segment(b, { x, y + 9 * s, z }, { x - 2.4 * s, y + 13 * s, z - 1.6 * s }, 0.45 * s, { 104, 94, 84 }, "Wood", "Decoracion")
-		else
-			local c = OAK[math.floor(W.rand() * #OAK) + 1]
-			b:cylinder({ name = "Tronco", length = 10 * s, diameter = 1.7 * s, pos = { x, y + 5 * s, z }, color = { 90, 70, 52 }, mat = "Wood" })
-			b:ball({ name = "Copa", diameter = 10 * s, pos = { x, y + 12 * s, z }, color = c, mat = "LeafyGrass", folder = "Decoracion" })
-			b:ball({ name = "Copa", diameter = 7.5 * s, pos = { x + 3 * s, y + 10 * s, z + 1.2 * s }, color = P.lighter(c, 8), mat = "LeafyGrass", folder = "Decoracion" })
-			b:ball({ name = "Copa", diameter = 7 * s, pos = { x - 2.6 * s, y + 10.6 * s, z - 1.6 * s }, color = P.darker(c, 8), mat = "LeafyGrass", folder = "Decoracion" })
-		end
-	end
-
-	-- Densidad del bosque: hay zonas espesas y claros
-	local function density(x, z)
-		return 0.45 + 0.3 * math.sin(x / 310 + 1.3) * math.cos(z / 270 - 0.4) + 0.25 * math.sin((x + z) / 530)
-	end
-
-	function W.buildForest(target)
-		local placed, tries = 0, 0
-		while placed < target and tries < target * 8 do
-			tries = tries + 1
-			local x, z = W.range(-2000, 1560), W.range(-2000, 1500)
-			local d = density(x, z)
-			if W.rand() < d * d * 1.3 and W.isLand(x, z, 60) and not W.inZone(x, z, 14) and not W.nearRoad(x, z, 10) and not W.nearWater(x, z, 16) and W.groundY(x, z) < 70 then
-				local r = W.rand()
-				local kind = (r < 0.08) and "muerto" or ((z < -900 or r < 0.3) and "pino" or "roble")
-				W.tree(x, z, kind, W.range(0.9, 1.5))
-				placed = placed + 1
-			end
-		end
-		-- Rocas sueltas
-		for _ = 1, 160 do
-			local x, z = W.range(-2000, 1500), W.range(-2000, 1450)
-			if W.isLand(x, z, 40) and not W.inZone(x, z, 10) and not W.nearRoad(x, z, 6) and not W.nearWater(x, z, 10) then
-				local s = W.range(2, 6)
-				b:ball({ name = "Roca", diameter = s, pos = { x, W.groundY(x, z) + s * 0.2, z }, color = { 112, 110, 104 }, mat = "Slate" })
-			end
-		end
-		return placed
-	end
-
 	local RUST = { { 120, 70, 50 }, { 90, 96, 100 }, { 140, 120, 90 }, { 70, 80, 70 }, { 150, 60, 50 }, { 60, 70, 90 }, { 40, 40, 42 } }
 	function W.buildCars()
 		local count = 0
@@ -2971,8 +2572,954 @@ return function(b, MB)
 	return W
 end
 ]=]
-local FUENTES_ZONAS = {}
-FUENTES_ZONAS["Antena"] = [=[
+FUENTES["Terreno"] = [=[
+--[[
+	Terreno realista del mundo abierto.
+	El relieve se calcula con ruido (colinas suaves, montañas nevadas en los bordes norte y oeste),
+	se aplana bajo carreteras y zonas, se excavan los valles de los ríos y los lagos, la cantera
+	y la meseta tienen su forma, y la costa baja en playa hasta el mar.
+	El suelo cambia según el sitio: césped corto (Grass), maleza alta (LeafyGrass), tierra, barro en
+	las orillas, arena en la playa, roca en las pendientes fuertes y nieve en las cumbres.
+	Las rocas sueltas también se esculpen en el terreno (Rock, Slate, Basalt) con formas irregulares.
+	Se escribe con Terrain:WriteVoxels en bloques de 256 x 256 studs.
+]]
+return function(W)
+	local T = {}
+	local S = W.SIZE
+
+	-- =================================================================
+	--  Ruido Perlin propio (da el mismo mundo en Studio y en las pruebas)
+	-- =================================================================
+	local perm = {}
+	do
+		local p = {}
+		for i = 0, 255 do
+			p[i] = i
+		end
+		local seed = 1337
+		for i = 255, 1, -1 do
+			seed = (seed * 16807) % 2147483647
+			local j = seed % (i + 1)
+			p[i], p[j] = p[j], p[i]
+		end
+		for i = 0, 511 do
+			perm[i] = p[i % 256]
+		end
+	end
+	local GX = { 1, -1, 1, -1, 1, -1, 0, 0 }
+	local GZ = { 1, 1, -1, -1, 0, 0, 1, -1 }
+	local function grad(h, x, z)
+		local g = h % 8 + 1
+		return GX[g] * x + GZ[g] * z
+	end
+	local function noise(x, z)
+		local xi, zi = math.floor(x), math.floor(z)
+		local xf, zf = x - xi, z - zi
+		xi, zi = xi % 256, zi % 256
+		local u = xf * xf * xf * (xf * (xf * 6 - 15) + 10)
+		local v = zf * zf * zf * (zf * (zf * 6 - 15) + 10)
+		local a, b = perm[xi] + zi, perm[xi + 1] + zi
+		local g00 = grad(perm[a], xf, zf)
+		local g10 = grad(perm[b], xf - 1, zf)
+		local g01 = grad(perm[a + 1], xf, zf - 1)
+		local g11 = grad(perm[b + 1], xf - 1, zf - 1)
+		local x1 = g00 + u * (g10 - g00)
+		local x2 = g01 + u * (g11 - g01)
+		return (x1 + v * (x2 - x1)) * 0.75
+	end
+	local function fbm(x, z, octaves)
+		local sum, amp, freq, norm = 0, 1, 1, 0
+		for _ = 1, octaves do
+			sum = sum + noise(x * freq, z * freq) * amp
+			norm = norm + amp
+			amp = amp * 0.5
+			freq = freq * 2.03
+		end
+		return sum / norm
+	end
+	T.noise, T.fbm = noise, fbm
+
+	local function smooth01(t)
+		if t <= 0 then
+			return 0
+		elseif t >= 1 then
+			return 1
+		end
+		return t * t * (3 - 2 * t)
+	end
+	-- 1 si d <= a, 0 si d >= b, suave en medio
+	local function near(d, a, b)
+		return 1 - smooth01((d - a) / (b - a))
+	end
+
+	-- =================================================================
+	--  Campos de distancia en una rejilla de 16 studs (carreteras, ríos, zonas y costa)
+	-- =================================================================
+	local STEP = 16
+	local NG = math.floor(2 * S / STEP) + 1
+	local fRoad, fRiver, fZone, fCoast = {}, {}, {}, {}
+	local segDist = W.segDist
+
+	local roadSegs, riverSegs = {}, {}
+	local function addSegs(list, points, half)
+		for i = 1, #points - 1 do
+			local a, c = points[i], points[i + 1]
+			table.insert(list, { a[1], a[2], c[1], c[2], math.min(a[1], c[1]), math.max(a[1], c[1]), math.min(a[2], c[2]), math.max(a[2], c[2]), half })
+		end
+	end
+	for _, road in ipairs(W.roads) do
+		addSegs(roadSegs, road, 0)
+	end
+	addSegs(roadSegs, W.rail, 0)
+	for _, river in ipairs(W.rivers) do
+		addSegs(riverSegs, river.points, river.width / 2)
+	end
+	local zoneRects = {}
+	for name, r in pairs(W.zones) do
+		if not W.zoneNoFlat[name] then
+			table.insert(zoneRects, r)
+		end
+	end
+
+	local CAP = 200
+	for iz = 0, NG - 1 do
+		local z = -S + iz * STEP
+		for ix = 0, NG - 1 do
+			local x = -S + ix * STEP
+			local i = iz * NG + ix + 1
+			local best = CAP
+			for _, s in ipairs(roadSegs) do
+				if x > s[5] - best and x < s[6] + best and z > s[7] - best and z < s[8] + best then
+					local d = segDist(x, z, s[1], s[2], s[3], s[4])
+					if d < best then
+						best = d
+					end
+				end
+			end
+			fRoad[i] = best
+			best = CAP
+			for _, s in ipairs(riverSegs) do
+				local reach = best + s[9]
+				if x > s[5] - reach and x < s[6] + reach and z > s[7] - reach and z < s[8] + reach then
+					local d = segDist(x, z, s[1], s[2], s[3], s[4]) - s[9]
+					if d < best then
+						best = d
+					end
+				end
+			end
+			for _, l in ipairs(W.lakes) do
+				local d = math.sqrt((x - l[1]) ^ 2 + (z - l[2]) ^ 2) - l[3]
+				if d < best then
+					best = d
+				end
+			end
+			fRiver[i] = best
+			best = CAP
+			for _, r in ipairs(zoneRects) do
+				local dx = math.max(r[1] - x, 0, x - r[2])
+				local dz = math.max(r[3] - z, 0, z - r[4])
+				local d = math.sqrt(dx * dx + dz * dz)
+				if d < best then
+					best = d
+				end
+			end
+			fZone[i] = best
+			local dc = math.min(W.polylineDist(x, z, W.coast), 600)
+			-- En el borde oeste y norte el punto se mira un poco hacia dentro para no confundirlo con el mar
+			fCoast[i] = W.inLandPoly(math.max(x, -S + 1), math.max(z, -S + 1)) and dc or -dc
+		end
+		if iz % 32 == 0 then
+			task.wait()
+		end
+	end
+
+	-- Interpolación bilineal de los cuatro campos
+	local function fields(x, z)
+		local fx = math.min(math.max((x + S) / STEP, 0), NG - 1.0001)
+		local fz = math.min(math.max((z + S) / STEP, 0), NG - 1.0001)
+		local ix, iz = math.floor(fx), math.floor(fz)
+		local tx, tz = fx - ix, fz - iz
+		local i = iz * NG + ix + 1
+		local j = i + NG
+		local function lerp(f)
+			local a = f[i] + (f[i + 1] - f[i]) * tx
+			local c = f[j] + (f[j + 1] - f[j]) * tx
+			return a + (c - a) * tz
+		end
+		return lerp(fRoad), lerp(fRiver), lerp(fZone), lerp(fCoast)
+	end
+	T.fields = fields
+
+	-- =================================================================
+	--  Cantera y meseta
+	-- =================================================================
+	local Q, PL = W.quarry, W.plateau
+	local LEVELS = { { 170, -12 }, { 130, -24 }, { 90, -36 }, { 55, -48 } }
+	local function quarry(x, z)
+		local dx, dz = x - Q.x, z - Q.z
+		local r = math.sqrt(dx * dx + dz * dz)
+		if r >= 196 then
+			return nil, r
+		end
+		if r < 40 then
+			return -56, r
+		end
+		local h, outer = 0, 0
+		for _, lv in ipairs(LEVELS) do
+			if r < lv[1] then
+				outer, h = h, lv[2]
+			end
+		end
+		-- Rampas para bajar de una terraza a otra
+		local a = math.deg(math.atan2(dz, dx)) % 360
+		for i, lv in ipairs(LEVELS) do
+			local diff = math.abs(((a - i * 95) + 180) % 360 - 180)
+			if diff < 8 and r > lv[1] - 34 and r < lv[1] + 4 then
+				local upper = (i == 1) and 0 or LEVELS[i - 1][2]
+				h = lv[2] + (upper - lv[2]) * smooth01((r - (lv[1] - 34)) / 38)
+			end
+		end
+		return h, r
+	end
+
+	-- =================================================================
+	--  Altura del suelo
+	-- =================================================================
+	function T.heightAt(x, z, road, river, zone, coast)
+		-- Colinas y ondulación suave
+		local h = math.max(0, fbm(x / 650 + 11.3, z / 650 - 7.1, 4)) * 95 + fbm(x / 170 + 3.1, z / 170 + 1.7, 2) * 2.5
+		-- Montañas en los bordes norte y oeste
+		local edge = math.min(x + S, z + S)
+		if edge < 560 then
+			local e = smooth01(1 - edge / 560)
+			local ridge = 1 - math.abs(fbm(x / 360 - 3.7, z / 360 + 9.2, 4))
+			h = h + e * (50 + ridge * ridge * 240)
+		end
+		-- Explanadas bajo carreteras y zonas
+		local flat = math.max(near(road, 14, 90), near(zone, 4, 120))
+		h = h * (1 - flat)
+		-- Meseta de la Colina Alta
+		local dp = math.sqrt((x - PL.x) ^ 2 + (z - PL.z) ^ 2)
+		if dp < PL.rBase + 40 then
+			h = h + (PL.top - h) * near(dp, PL.rTop, PL.rBase + 40)
+		end
+		-- Cantera
+		local qh = quarry(x, z)
+		if qh then
+			h = qh
+		end
+		-- Valles de ríos y lagos: talud suave y cauce
+		if river < 80 then
+			local bank = (river < 0) and (-4 - 7 * math.min(1, -river / 10)) or (-4 + river * 0.35)
+			if bank < h then
+				h = bank
+			end
+		end
+		-- Playa y fondo del mar (tierra adentro la costa deja de influir)
+		local beach = -4 + coast * 0.12 + math.max(0, coast - 50) ^ 1.5 * 0.2
+		if beach < h then
+			h = beach
+		end
+		if coast < 0 and h < -34 then
+			h = -34 + fbm(x / 90, z / 90, 2) * 2
+		end
+		return h
+	end
+
+	function T.height(x, z)
+		return T.heightAt(x, z, fields(x, z))
+	end
+	W.groundY = T.height
+
+	-- Nivel del agua en un punto (nil si no hay agua)
+	function T.waterAt(x, z, river, coast)
+		local _, r = quarry(x, z)
+		if r < 40 then
+			return -46
+		end
+		if river < 1 or coast < 6 then
+			return -4
+		end
+		return nil
+	end
+
+	-- Densidad de vegetación (la usa también el bosque): alta = maleza y bosque
+	function T.veg(x, z)
+		return fbm(x / 230 + 5.5, z / 230 - 2.2, 3)
+	end
+
+	-- Material de la superficie
+	local function zoneGround(x, z)
+		for name, r in pairs(W.zones) do
+			if x > r[1] - 3 and x < r[2] + 3 and z > r[3] - 3 and z < r[4] + 3 then
+				return W.zoneGround[name] or "Grass"
+			end
+		end
+		return "Grass"
+	end
+	function T.surfaceAt(x, z, h, slope, road, river, zone, coast)
+		local _, qr = quarry(x, z)
+		if qr < 196 then
+			return (qr < 42) and "Mud" or "Rock"
+		end
+		if coast < 46 and h < 3.5 then
+			return "Sand"
+		end
+		if h > 175 + fbm(x / 80, z / 80, 2) * 25 then
+			return "Snow"
+		end
+		if slope > 0.95 or h > 125 then
+			return "Rock"
+		end
+		if river < 9 then
+			return "Mud"
+		end
+		if road < 13.5 then
+			return "Ground"
+		end
+		if zone < 3 then
+			return zoneGround(x, z)
+		end
+		if fbm(x / 55 - 9.1, z / 55 + 4.4, 2) > 0.42 then
+			return "Ground"
+		end
+		if T.veg(x, z) > 0.02 then
+			return "LeafyGrass"
+		end
+		return "Grass"
+	end
+
+	function T.surface(x, z)
+		local road, river, zone, coast = fields(x, z)
+		local h = T.heightAt(x, z, road, river, zone, coast)
+		local sx = (T.height(x + 4, z) - T.height(x - 4, z)) / 8
+		local sz = (T.height(x, z + 4) - T.height(x, z - 4)) / 8
+		return T.surfaceAt(x, z, h, math.sqrt(sx * sx + sz * sz), road, river, zone, coast), h
+	end
+
+	-- =================================================================
+	--  Rocas esculpidas en el propio terreno: elipsoides deformados con ruido, de Rock, Slate o Basalt.
+	--  Así tienen la textura real de roca de Roblox y formas irregulares, sin ser piezas.
+	-- =================================================================
+	T.boulders = {}
+	local ROCK_MATS = { "Rock", "Rock", "Rock", "Slate", "Slate", "Basalt" }
+	function T.addBoulder(x, z, size, mat)
+		local rx, ry, rz = size * W.range(0.95, 1.3), size * W.range(0.55, 0.85), size * W.range(0.7, 1)
+		local yaw = math.rad(W.range(0, 180))
+		table.insert(T.boulders, {
+			x = x, z = z, y = T.height(x, z) - ry * 0.35,
+			rx = rx, ry = ry, rz = rz, c = math.cos(yaw), s = math.sin(yaw),
+			mat = mat or ROCK_MATS[math.floor(W.rand() * #ROCK_MATS) + 1],
+			seed = W.range(0, 200), reach = math.max(rx, rz) * 1.6,
+		})
+	end
+
+	-- Ocupación (0 a 1) de la roca en un punto
+	function T.boulderOcc(bd, px, py, pz)
+		local dx, dy, dz = px - bd.x, py - bd.y, pz - bd.z
+		local u = dx * bd.c + dz * bd.s
+		local w = -dx * bd.s + dz * bd.c
+		local q = math.sqrt((u / bd.rx) ^ 2 + (dy / bd.ry) ^ 2 + (w / bd.rz) ^ 2)
+		-- Bultos y aristas con ruido para que no sea un huevo perfecto
+		local bump = noise(u * 0.17 + bd.seed, w * 0.17 + dy * 0.23) * 0.34 + noise(u * 0.43 - bd.seed, dy * 0.41 + w * 0.11) * 0.14
+		q = q * (1 - bump)
+		local sd = (1 - q) * math.min(bd.rx, bd.ry, bd.rz)
+		return math.clamp(0.5 + sd / 4, 0, 1)
+	end
+
+	-- =================================================================
+	--  Escribir el terreno en Roblox
+	-- =================================================================
+	local MATS = {}
+	for _, m in ipairs({ "Grass", "LeafyGrass", "Ground", "Mud", "Rock", "Slate", "Basalt", "Sand", "Snow", "Water", "Air" }) do
+		MATS[m] = Enum.Material[m]
+	end
+
+	-- progress(hechos, total) se llama tras cada bloque
+	function T.generate(terrain, progress, only)
+		local CH, V = 64, 4
+		local n = math.floor(2 * S / (CH * V))
+		local done = 0
+		for bz = 0, n - 1 do
+			for bx = 0, n - 1 do
+				if not only or only[bz * n + bx + 1] then
+					local x0, z0 = -S + bx * CH * V, -S + bz * CH * V
+					local H, F = {}, {}
+					for i = 0, CH + 1 do
+						H[i], F[i] = {}, {}
+						for k = 0, CH + 1 do
+							local x, z = x0 + (i - 0.5) * V, z0 + (k - 0.5) * V
+							local road, river, zone, coast = fields(x, z)
+							H[i][k] = T.heightAt(x, z, road, river, zone, coast)
+							F[i][k] = { road, river, zone, coast }
+						end
+					end
+					local top, wat = {}, {}
+					local hmin, hmax = math.huge, -math.huge
+					for i = 1, CH do
+						top[i], wat[i] = {}, {}
+						for k = 1, CH do
+							local x, z = x0 + (i - 0.5) * V, z0 + (k - 0.5) * V
+							local h, f = H[i][k], F[i][k]
+							local sx = (H[i + 1][k] - H[i - 1][k]) / (2 * V)
+							local sz = (H[i][k + 1] - H[i][k - 1]) / (2 * V)
+							top[i][k] = T.surfaceAt(x, z, h, math.sqrt(sx * sx + sz * sz), f[1], f[2], f[3], f[4])
+							local wl = T.waterAt(x, z, f[2], f[4])
+							if wl and wl > h then
+								wat[i][k] = wl
+								if wl > hmax then
+									hmax = wl
+								end
+							end
+							if h < hmin then
+								hmin = h
+							end
+							if h > hmax then
+								hmax = h
+							end
+						end
+					end
+					-- Rocas que tocan este bloque
+					local rocks = {}
+					local x1, z1 = x0 + CH * V, z0 + CH * V
+					for _, bd in ipairs(T.boulders) do
+						if bd.x + bd.reach > x0 and bd.x - bd.reach < x1 and bd.z + bd.reach > z0 and bd.z - bd.reach < z1 then
+							table.insert(rocks, bd)
+							hmax = math.max(hmax, bd.y + bd.ry * 1.6)
+						end
+					end
+					local y0 = math.floor((hmin - 12) / V) * V
+					local y1 = math.ceil((hmax + 2) / V) * V
+					local ny = (y1 - y0) / V
+					local mats, occs = {}, {}
+					for i = 1, CH do
+						local mi, oi = {}, {}
+						mats[i], occs[i] = mi, oi
+						for j = 1, ny do
+							mi[j], oi[j] = {}, {}
+						end
+						for k = 1, CH do
+							local h, wl, m0 = H[i][k], wat[i][k], top[i][k]
+							local surf = MATS[m0]
+							local under = (m0 == "Rock" or m0 == "Snow") and MATS.Rock or ((m0 == "Sand") and MATS.Sand or MATS.Ground)
+							for j = 1, ny do
+								local vy = y0 + (j - 1) * V
+								local m, o = MATS.Air, 0
+								if vy < h then
+									local depth = h - (vy + V)
+									o = math.min(1, (h - vy) / V)
+									if depth < 4 then
+										m = surf
+									elseif depth < 14 then
+										m = under
+									else
+										m = MATS.Rock
+									end
+								elseif wl and vy < wl then
+									m, o = MATS.Water, math.min(1, (wl - vy) / V)
+								end
+								mi[j][k], oi[j][k] = m, o
+							end
+						end
+					end
+					for _, bd in ipairs(rocks) do
+						local m = MATS[bd.mat]
+						local i0 = math.max(1, math.floor((bd.x - bd.reach - x0) / V) + 1)
+						local i1 = math.min(CH, math.floor((bd.x + bd.reach - x0) / V) + 1)
+						local k0 = math.max(1, math.floor((bd.z - bd.reach - z0) / V) + 1)
+						local k1 = math.min(CH, math.floor((bd.z + bd.reach - z0) / V) + 1)
+						local j0 = math.max(1, math.floor((bd.y - bd.ry * 1.6 - y0) / V) + 1)
+						local j1 = math.min(ny, math.floor((bd.y + bd.ry * 1.6 - y0) / V) + 1)
+						for i = i0, i1 do
+							for j = j0, j1 do
+								local mj, oj = mats[i][j], occs[i][j]
+								for k = k0, k1 do
+									local o = T.boulderOcc(bd, x0 + (i - 0.5) * V, y0 + (j - 0.5) * V, z0 + (k - 0.5) * V)
+									if o > oj[k] and (o >= 0.5 or mj[k] ~= MATS.Water) then
+										mj[k], oj[k] = m, o
+									end
+								end
+							end
+						end
+					end
+					terrain:WriteVoxels(Region3.new(Vector3.new(x0, y0, z0), Vector3.new(x0 + CH * V, y1, z0 + CH * V)), V, mats, occs)
+					task.wait()
+				end
+				done = done + 1
+				if progress then
+					progress(done, n * n)
+				end
+			end
+		end
+	end
+
+	return T
+end
+]=]
+FUENTES["Vegetacion"] = [=[
+--[[
+	Vegetación del mundo abierto, hecha para parecer natural y no de bolas y cubos:
+	  · Abetos: capas de ramas que caen y se acortan hacia una punta afilada (silueta de árbol de navidad)
+	  · Robles: tronco grueso, ramas abiertas y copa irregular de muchas matas de hojas de varios tonos
+	  · Abedules: tronco blanco con marcas y copa alta y estrecha; árboles secos con ramas rotas
+	  · Sotobosque: helechos, arbustos bajos y abetos jóvenes; hierba alta en matas; juncos en las orillas
+	  · Troncos caídos que siguen la pendiente, tocones y rocas esculpidas en el propio terreno
+	El bosque es más denso donde el terreno tiene maleza (LeafyGrass) y los abetos dominan en el norte
+	y en las alturas.
+
+	Modelos propios (opcional): si en ServerStorage hay una carpeta "ModelosMundo" con subcarpetas
+	Pino, Roble, Abedul, Muerto o Arbusto que tengan modelos dentro (por ejemplo árboles 3D realistas
+	de la Toolbox), se colocan esos en lugar de los hechos con piezas, con tamaño y giro al azar.
+]]
+return function(b, MB, W, T)
+	local P = MB.Props
+	local V = {}
+
+	local FIR = { { 38, 66, 44 }, { 44, 74, 50 }, { 33, 58, 40 }, { 50, 80, 54 }, { 42, 70, 56 } }
+	local OAK = { { 74, 100, 52 }, { 86, 112, 58 }, { 64, 90, 46 }, { 98, 112, 56 }, { 112, 106, 54 } }
+	local BIRCH = { { 122, 150, 72 }, { 138, 158, 80 }, { 112, 140, 66 }, { 150, 150, 70 } }
+	local FERN = { { 70, 108, 48 }, { 82, 118, 54 }, { 96, 120, 58 } }
+	local GRASS = { { 96, 124, 64 }, { 110, 132, 70 }, { 130, 136, 76 }, { 150, 146, 90 }, { 86, 114, 58 } }
+	local REED = { { 104, 120, 66 }, { 120, 128, 72 }, { 138, 132, 80 } }
+	local BARK = { 70, 54, 42 }
+	local BARK_OAK = { 84, 66, 50 }
+
+	local function pick(list)
+		return list[math.floor(W.rand() * #list) + 1]
+	end
+
+	local function rod(name, a, c, diameter, color, mat, folder)
+		local part = P.rod(b, a, c, diameter, color, mat, folder)
+		part.Name = name
+		return part
+	end
+
+	-- =================================================================
+	--  Modelos propios de ServerStorage.ModelosMundo (si los hay)
+	-- =================================================================
+	local MODELS = {}
+	do
+		local ok, folder = pcall(function()
+			return game:GetService("ServerStorage"):FindFirstChild("ModelosMundo")
+		end)
+		if ok and folder then
+			for _, kind in ipairs({ "Pino", "Roble", "Abedul", "Muerto", "Arbusto" }) do
+				local sub = folder:FindFirstChild(kind)
+				local list = {}
+				if sub then
+					for _, m in ipairs(sub:GetChildren()) do
+						if m:IsA("Model") or m:IsA("BasePart") then
+							table.insert(list, m)
+						end
+					end
+				end
+				if #list > 0 then
+					MODELS[kind] = list
+				end
+			end
+		end
+	end
+	V.modelos = MODELS
+
+	-- Coloca una copia de un modelo propio apoyada en el suelo. Devuelve false si no hay modelos de ese tipo
+	local function useModel(kind, x, z, s)
+		local list = MODELS[kind]
+		if not list then
+			return false
+		end
+		local src = list[math.floor(W.rand() * #list) + 1]
+		local m = src:Clone()
+		if m:IsA("BasePart") then
+			local g = Instance.new("Model")
+			g.Name = src.Name
+			m.Parent = g
+			g.PrimaryPart = m
+			m = g
+		end
+		for _, d in ipairs(m:GetDescendants()) do
+			if d:IsA("LuaSourceContainer") then
+				d:Destroy() -- los modelos de la Toolbox a veces traen scripts (incluso maliciosos): fuera
+			elseif d:IsA("BasePart") then
+				d.Anchored = true
+			end
+		end
+		pcall(function()
+			m:ScaleTo(m:GetScale() * s)
+		end)
+		local box, size = m:GetBoundingBox()
+		local bottom = CFrame.new(box.Position.X, box.Position.Y - size.Y / 2, box.Position.Z)
+		local rel = m:GetPivot():ToObjectSpace(bottom)
+		local target = CFrame.new(x, T.height(x, z) - 0.3, z) * CFrame.Angles(0, math.rad(W.range(0, 360)), 0)
+		m:PivotTo(target * rel:Inverse())
+		m.Parent = b:folder("Mapa")
+		return true
+	end
+
+	-- =================================================================
+	--  Árboles
+	-- =================================================================
+	-- Abeto: capas de tres ramas en cuña que caen hacia fuera (cada capa girada 60° respecto a la de abajo),
+	-- más cortas cuanto más arriba, y punta afilada
+	function V.pine(x, z, s)
+		if useModel("Pino", x, z, s) then
+			return
+		end
+		local y = T.height(x, z) - 0.6
+		local c = pick(FIR)
+		local H = 27 * s
+		local layers = (H < 15) and 3 or ((H > 34) and 6 or 5)
+		b:cylinder({ name = "Tronco", length = H * 0.85, diameter = math.max(0.5, 1.3 * s), pos = { x, y + H * 0.425, z }, color = BARK, mat = "Wood" })
+		local spin = W.range(0, 90)
+		local function whorl(yy, R, th, w, turn, shade, droop)
+			for k = 0, 2 do
+				local a = spin + turn + k * 120 + W.range(-14, 14)
+				local r = math.rad(a)
+				local len = R * W.range(0.9, 1.08)
+				b:wedge({ name = "Ramas", size = { w, th, len }, pos = { x - math.sin(r) * len / 2, yy + th / 2, z - math.cos(r) * len / 2 }, rot = { -droop, a, 0 }, color = (k % 2 == 0) and shade or P.darker(shade, 7), mat = "LeafyGrass", folder = "Decoracion" })
+			end
+		end
+		for i = 0, layers - 1 do
+			local t = i / (layers - 1)
+			local R = H * (0.34 - 0.25 * t) * W.range(0.92, 1.08)
+			whorl(y + H * (0.16 + 0.64 * t), R, R * 0.5 + H * 0.06, R * 0.95, i * 60, P.lighter(c, math.floor(t * 14)), W.range(5, 12))
+		end
+		-- Punta: tres aletas finas en cruz que acaban en pico
+		whorl(y + H * 0.78, H * 0.09, H * 0.21, math.max(0.35, 0.5 * s), 30, P.lighter(c, 16), 0)
+	end
+
+	-- Roble: tronco grueso, tres o cuatro ramas abiertas y matas de hojas aplastadas alrededor de cada punta
+	function V.oak(x, z, s)
+		if useModel("Roble", x, z, s) then
+			return
+		end
+		local y = T.height(x, z) - 0.5
+		local c = pick(OAK)
+		local top = y + 7 * s
+		b:cylinder({ name = "Tronco", length = 8 * s, diameter = 2.2 * s, pos = { x, y + 4 * s, z }, color = BARK_OAK, mat = "Wood" })
+		local ends = { { x + W.range(-1, 1) * s, top + W.range(6.5, 8) * s, z + W.range(-1, 1) * s } }
+		local nb = (W.rand() < 0.5) and 3 or 4
+		local spin = W.range(0, 360)
+		for k = 1, nb do
+			local a = math.rad(spin + k * 360 / nb + W.range(-25, 25))
+			local r = W.range(3.5, 5.5) * s
+			local e = { x + math.cos(a) * r, top + W.range(3, 5) * s, z + math.sin(a) * r }
+			rod("Rama", { x, top - s, z }, e, W.range(0.6, 0.9) * s, BARK_OAK, "Wood", "Decoracion")
+			table.insert(ends, e)
+		end
+		for n, e in ipairs(ends) do
+			for j = 1, (n == 1) and 3 or 2 do
+				local w = W.range(5.5, 8) * s
+				local shade = (j == 1) and c or ((j == 2) and P.lighter(c, 10) or P.darker(c, 10))
+				b:blob({ name = "Copa", size = { w, w * W.range(0.7, 0.9), w * W.range(0.8, 1) }, pos = { e[1] + W.range(-1.6, 1.6) * s, e[2] + W.range(-0.4, 1.4) * s, e[3] + W.range(-1.6, 1.6) * s }, rot = { W.range(-15, 15), W.range(0, 180), W.range(-15, 15) }, color = shade, mat = "LeafyGrass", folder = "Decoracion" })
+			end
+		end
+	end
+
+	-- Abedul: tronco blanco con marcas oscuras, dos ramitas y copa alta y estrecha
+	function V.birch(x, z, s)
+		if useModel("Abedul", x, z, s) then
+			return
+		end
+		local y = T.height(x, z) - 0.5
+		local c = pick(BIRCH)
+		local H = 17 * s
+		b:cylinder({ name = "Tronco", length = H, diameter = 1.1 * s, pos = { x, y + H / 2, z }, color = { 224, 220, 208 }, mat = "Wood" })
+		for k = 1, 3 do
+			b:cylinder({ name = "Marca", length = 0.35 * s, diameter = 1.16 * s, pos = { x, y + (2.5 + k * 3.1) * s, z }, color = { 52, 50, 48 }, mat = "Wood", folder = "Decoracion" })
+		end
+		for _ = 1, 2 do
+			local a = math.rad(W.range(0, 360))
+			local yy = y + H * W.range(0.5, 0.7)
+			rod("Rama", { x, yy, z }, { x + math.cos(a) * 3 * s, yy + 2.5 * s, z + math.sin(a) * 3 * s }, 0.4 * s, { 214, 210, 198 }, "Wood", "Decoracion")
+		end
+		for k = 0, 5 do
+			local t = k / 5
+			local w = (4.6 - 1.6 * t) * s * W.range(0.85, 1.15)
+			b:blob({ name = "Copa", size = { w, w * W.range(1.1, 1.5), w * 0.9 }, pos = { x + W.range(-1.9, 1.9) * s, y + H * (0.5 + 0.48 * t), z + W.range(-1.9, 1.9) * s }, rot = { W.range(-12, 12), W.range(0, 180), W.range(-12, 12) }, color = (k % 2 == 0) and c or P.lighter(c, 10), mat = "LeafyGrass", folder = "Decoracion" })
+		end
+	end
+
+	-- Árbol seco: tronco gris con la copa partida y ramas desnudas con ramitas
+	function V.dead(x, z, s)
+		if useModel("Muerto", x, z, s) then
+			return
+		end
+		local y = T.height(x, z) - 0.5
+		local gray = { 106, 96, 86 }
+		local H = 11 * s
+		b:cylinder({ name = "Tronco", length = H, diameter = 1.4 * s, pos = { x, y + H / 2, z }, color = gray, mat = "Wood" })
+		local a0 = math.rad(W.range(0, 360))
+		rod("Rama", { x, y + H - 0.3, z }, { x + math.cos(a0) * 1.4 * s, y + H + 3.5 * s, z + math.sin(a0) * 1.4 * s }, 0.8 * s, gray, "Wood", "Decoracion")
+		for _ = 1, 3 do
+			local a = math.rad(W.range(0, 360))
+			local yy = y + H * W.range(0.45, 0.85)
+			local r = W.range(2.6, 4) * s
+			local e = { x + math.cos(a) * r, yy + W.range(2, 3.5) * s, z + math.sin(a) * r }
+			rod("Rama", { x, yy, z }, e, 0.5 * s, gray, "Wood", "Decoracion")
+			local a2 = a + math.rad(W.range(-50, 50))
+			rod("Rama", e, { e[1] + math.cos(a2) * 1.6 * s, e[2] + 1.4 * s, e[3] + math.sin(a2) * 1.6 * s }, 0.28 * s, gray, "Wood", "Decoracion")
+		end
+	end
+
+	-- =================================================================
+	--  Sotobosque y plantas pequeñas
+	-- =================================================================
+	-- Arbusto: varias matas aplastadas de distinto tono
+	function V.bush(x, z, s)
+		if useModel("Arbusto", x, z, s) then
+			return
+		end
+		local y = T.height(x, z)
+		local c = pick(OAK)
+		for k = 1, 4 do
+			local w = W.range(2.4, 3.8) * s
+			b:blob({ name = "Arbusto", size = { w, w * W.range(0.55, 0.8), w * W.range(0.7, 1) }, pos = { x + W.range(-1.5, 1.5) * s, y + w * 0.25, z + W.range(-1.5, 1.5) * s }, rot = { 0, W.range(0, 180), W.range(-10, 10) }, color = (k == 1) and c or ((k % 2 == 0) and P.lighter(c, 9) or P.darker(c, 8)), mat = "LeafyGrass", folder = "Decoracion", query = false })
+		end
+	end
+
+	-- Helecho: siete frondas en cuña que salen del centro hacia arriba y hacia fuera
+	function V.fern(x, z, s)
+		local y = T.height(x, z) - 0.1
+		local c = pick(FERN)
+		local spin = W.range(0, 360)
+		for k = 0, 6 do
+			local a = spin + k * 360 / 7 + W.range(-12, 12)
+			local r = math.rad(a)
+			local len = W.range(2.4, 3.6) * s
+			local up = W.range(22, 38)
+			local hx, hy = math.cos(math.rad(up)) * len / 2, math.sin(math.rad(up)) * len / 2
+			b:wedge({ name = "Helecho", size = { W.range(0.7, 1) * s, 0.45 * s, len }, pos = { x - math.sin(r) * hx, y + 0.25 * s + hy, z - math.cos(r) * hx }, rot = { up, a, 0 }, color = (k % 2 == 0) and c or P.lighter(c, 10), mat = "Grass", folder = "Decoracion", shadow = false, query = false })
+		end
+	end
+
+	-- Mata de hierba alta: tres hojas en cuña (punta afilada) abiertas en estrella (sin colisión ni sombra)
+	function V.tuft(x, z, s, dry)
+		local y = T.height(x, z)
+		local c = dry and GRASS[4] or pick(GRASS)
+		local yaw = W.range(0, 360)
+		for k = 0, 2 do
+			local h = W.range(2, 4.4) * s
+			local a = yaw + k * 120 + W.range(-25, 25)
+			local r = math.rad(a)
+			b:wedge({ name = "HierbaAlta", size = { 0.08, h, W.range(0.35, 0.7) * s }, pos = { x + math.cos(r) * 0.3, y + h / 2 - 0.3, z + math.sin(r) * 0.3 }, rot = { W.range(-18, 18), a, W.range(-14, 14) }, color = (k == 1) and P.darker(c, 9) or c, mat = "Grass", folder = "Decoracion", shadow = false, query = false })
+		end
+	end
+
+	-- Juncos de orilla: tallos finos algo inclinados, dos con la espiga marrón
+	function V.reeds(x, z, s)
+		local y = T.height(x, z)
+		for k = 1, 5 do
+			local h = W.range(4, 7) * s
+			local px, pz = x + W.range(-1.3, 1.3), z + W.range(-1.3, 1.3)
+			local tilt, yaw = W.range(0, 10), W.range(0, 360)
+			local c = pick(REED)
+			b:cylinder({ name = "Junco", length = h, diameter = 0.18, pos = { px, y + h / 2 - 0.3, pz }, rot = { tilt, yaw, 0 }, color = c, mat = "Grass", folder = "Decoracion", shadow = false, query = false })
+			if k <= 2 then
+				-- La espiga va en la punta del tallo inclinado
+				local d = h / 2 - 0.7
+				local st, ct = math.sin(math.rad(tilt)), math.cos(math.rad(tilt))
+				local sy, cy = math.sin(math.rad(yaw)), math.cos(math.rad(yaw))
+				b:cylinder({ name = "Espiga", length = 1.3, diameter = 0.42, pos = { px + sy * d * st, y + h / 2 - 0.3 + d * ct, pz + cy * d * st }, rot = { tilt, yaw, 0 }, color = { 96, 64, 40 }, mat = "Fabric", folder = "Decoracion", shadow = false, query = false })
+			end
+		end
+	end
+
+	-- Tronco caído apoyado en el suelo (sigue la pendiente), con musgo encima y una rama rota
+	function V.log(x, z)
+		local len = W.range(10, 18)
+		local a = math.rad(W.range(0, 360))
+		local dx, dz = math.cos(a) * len / 2, math.sin(a) * len / 2
+		local d = W.range(1.6, 2.4)
+		local p1 = { x - dx, T.height(x - dx, z - dz) + d * 0.35, z - dz }
+		local p2 = { x + dx, T.height(x + dx, z + dz) + d * 0.35, z + dz }
+		rod("TroncoCaido", p1, p2, d, { 88, 70, 52 }, "Wood", "Mapa")
+		local mid = { (p1[1] + p2[1]) / 2, (p1[2] + p2[2]) / 2, (p1[3] + p2[3]) / 2 }
+		rod("Musgo", { p1[1], p1[2] + d * 0.3, p1[3] }, { mid[1], mid[2] + d * 0.3, mid[3] }, d * 0.75, { 74, 102, 56 }, "LeafyGrass", "Decoracion")
+		local q = { mid[1] + dx * 0.4, mid[2] + d * 0.3, mid[3] + dz * 0.4 }
+		rod("Rama", q, { q[1] - dz * 0.2, q[2] + 2.8, q[3] + dx * 0.2 }, 0.45, { 92, 74, 56 }, "Wood", "Decoracion")
+	end
+
+	-- Tocón de un árbol talado, con el corte claro arriba
+	function V.stump(x, z)
+		local y = T.height(x, z)
+		local d, h = W.range(2, 3), W.range(1.2, 2.4)
+		b:cylinder({ name = "Tocon", length = h + 0.6, diameter = d, pos = { x, y + h / 2 - 0.3, z }, color = BARK, mat = "Wood" })
+		b:cylinder({ name = "Corte", length = 0.12, diameter = d * 0.86, pos = { x, y + h - 0.05, z }, color = { 158, 128, 92 }, mat = "Wood", folder = "Decoracion" })
+	end
+
+	-- Rocas: se esculpen en el terreno (ver Terreno.addBoulder); a veces en grupos de dos o tres
+	function V.rock(x, z, s)
+		T.addBoulder(x, z, 4.5 * s)
+		for _ = 1, math.floor(W.range(0, 2.99)) do
+			local a = W.range(0, 2 * math.pi)
+			local d = W.range(5, 9) * s
+			T.addBoulder(x + math.cos(a) * d, z + math.sin(a) * d, W.range(2.6, 3.6) * s)
+		end
+	end
+
+	-- =================================================================
+	--  Repartir por el mapa
+	-- =================================================================
+	-- Sitio libre: en tierra, fuera de zonas, carreteras y agua, y sin pendiente fuerte
+	local function free(x, z, roadMargin, zoneMargin)
+		local road, river, zone, coast = T.fields(x, z)
+		if coast < 55 or river < 14 or road < 11 + roadMargin or zone < zoneMargin then
+			return false
+		end
+		return true
+	end
+
+	-- Orilla de río o lago: entre "lo" (dentro del agua) y "hi" studs del borde
+	local function bank(x, z, lo, hi)
+		local road, river, zone, coast = T.fields(x, z)
+		return river > lo and river < hi and coast > 60 and road > 14 and zone > 8
+	end
+
+	local function randomPoint()
+		return W.range(-2030, 1560), W.range(-2030, 1500)
+	end
+
+	function V.buildAll(counts)
+		local placed = { trees = 0, bushes = 0, ferns = 0, saplings = 0, tufts = 0, reeds = 0, logs = 0, stumps = 0, rocks = 0, riverRocks = 0 }
+		-- Árboles: el bosque se espesa donde hay maleza; abetos sobre todo en el norte y en las alturas
+		local tries = 0
+		while placed.trees < counts.trees and tries < counts.trees * 10 do
+			tries = tries + 1
+			local x, z = randomPoint()
+			if free(x, z, 9, 14) then
+				local veg = T.veg(x, z)
+				local density = 0.04 + 0.9 * math.max(0, math.min(1, (veg + 0.2) / 0.45))
+				if W.rand() < density then
+					local surf, h = T.surface(x, z)
+					if surf ~= "Rock" and surf ~= "Snow" and surf ~= "Sand" and h < 150 then
+						local r = W.rand()
+						local _, river = T.fields(x, z)
+						if r < 0.07 then
+							V.dead(x, z, W.range(0.9, 1.3))
+						elseif (z < -1100 or h > 45) and r < 0.88 or r < 0.62 then
+							V.pine(x, z, W.range(0.85, 1.5))
+						elseif river < 60 and r < 0.85 then
+							V.birch(x, z, W.range(0.9, 1.3))
+						else
+							V.oak(x, z, W.range(0.9, 1.4))
+						end
+						placed.trees = placed.trees + 1
+					end
+				end
+			end
+		end
+		-- Sotobosque: helechos y abetos jóvenes bajo los árboles; arbustos en los claros y bordes
+		tries = 0
+		while placed.bushes + placed.ferns + placed.saplings < counts.bushes and tries < counts.bushes * 10 do
+			tries = tries + 1
+			local x, z = randomPoint()
+			if free(x, z, 4, 8) then
+				local veg = T.veg(x, z)
+				if veg > -0.15 and W.rand() < 0.7 then
+					local surf, h = T.surface(x, z)
+					if (surf == "Grass" or surf == "LeafyGrass") and h < 150 then
+						local r = W.rand()
+						local dense = veg > 0.15
+						if (dense and r < 0.6) or (not dense and r < 0.2) then
+							V.fern(x, z, W.range(0.8, 1.3))
+							placed.ferns = placed.ferns + 1
+						elseif (dense and r < 0.85) or (not dense and r < 0.4) then
+							V.pine(x, z, W.range(0.3, 0.5))
+							placed.saplings = placed.saplings + 1
+						else
+							V.bush(x, z, W.range(0.8, 1.5))
+							placed.bushes = placed.bushes + 1
+						end
+					end
+				end
+			end
+		end
+		-- Hierba alta en grupos, sobre todo donde hay maleza
+		tries = 0
+		while placed.tufts < counts.tufts and tries < counts.tufts * 4 do
+			tries = tries + 1
+			local cx, cz = randomPoint()
+			if free(cx, cz, 2, 4) then
+				local surf = T.surface(cx, cz)
+				if surf == "LeafyGrass" or (surf == "Grass" and W.rand() < 0.3) then
+					local dry = W.rand() < 0.25
+					for _ = 1, math.floor(W.range(3, 7)) do
+						local x, z = cx + W.range(-6, 6), cz + W.range(-6, 6)
+						if free(x, z, 1, 3) then
+							V.tuft(x, z, W.range(0.8, 1.3), dry)
+							placed.tufts = placed.tufts + 1
+						end
+					end
+				end
+			end
+		end
+		-- Juncos en las orillas (en grupos a lo largo del borde) y rocas en el agua poco profunda
+		tries = 0
+		while placed.reeds < counts.reeds and tries < counts.reeds * 300 do
+			tries = tries + 1
+			local cx, cz = randomPoint()
+			if bank(cx, cz, -1.5, 6) then
+				for _ = 1, math.floor(W.range(2, 5)) do
+					local x, z = cx + W.range(-7, 7), cz + W.range(-7, 7)
+					if placed.reeds < counts.reeds and bank(x, z, -1.5, 6) then
+						V.reeds(x, z, W.range(0.8, 1.2))
+						placed.reeds = placed.reeds + 1
+					end
+				end
+			end
+		end
+		tries = 0
+		while placed.riverRocks < counts.riverRocks and tries < counts.riverRocks * 300 do
+			tries = tries + 1
+			local x, z = randomPoint()
+			if bank(x, z, -4, 8) then
+				T.addBoulder(x, z, W.range(3, 5.5))
+				placed.riverRocks = placed.riverRocks + 1
+			end
+		end
+		-- Troncos caídos y tocones en el bosque
+		tries = 0
+		while placed.logs < counts.logs and tries < counts.logs * 20 do
+			tries = tries + 1
+			local x, z = randomPoint()
+			if free(x, z, 6, 10) and T.veg(x, z) > 0.15 then
+				local surf = T.surface(x, z)
+				if surf == "LeafyGrass" or surf == "Grass" then
+					V.log(x, z)
+					placed.logs = placed.logs + 1
+				end
+			end
+		end
+		tries = 0
+		while placed.stumps < counts.stumps and tries < counts.stumps * 20 do
+			tries = tries + 1
+			local x, z = randomPoint()
+			if free(x, z, 4, 8) and T.veg(x, z) > 0 then
+				V.stump(x, z)
+				placed.stumps = placed.stumps + 1
+			end
+		end
+		-- Rocas: más en las colinas
+		tries = 0
+		while placed.rocks < counts.rocks and tries < counts.rocks * 10 do
+			tries = tries + 1
+			local x, z = randomPoint()
+			if free(x, z, 4, 8) then
+				local _, h = T.surface(x, z)
+				if h > 12 or W.rand() < 0.3 then
+					V.rock(x, z, W.range(0.7, 1.6))
+					placed.rocks = placed.rocks + 1
+				end
+			end
+		end
+		return placed
+	end
+
+	return V
+end
+]=]
+local ZONAS = {}
+ZONAS["Antena"] = [=[
 -- Antena: puesto de comunicaciones con torre de radio, antenas parabólicas, búnker y generador.
 return function(b, MB, W)
 	local P = MB.Props
@@ -3001,8 +3548,8 @@ return function(b, MB, W)
 	W.spawn(300, -470, 180)
 end
 ]=]
-FUENTES_ZONAS["Cantera"] = [=[
--- Cantera: gran agujero de roca en terrazas (el terreno se excava en Mundo.luau) con charca en el fondo,
+ZONAS["Cantera"] = [=[
+-- Cantera: gran agujero de roca en terrazas (el relieve se hace en Terreno.luau) con charca en el fondo,
 -- cintas transportadoras, camiones volquete, excavadora y planta de machaqueo.
 return function(b, MB, W)
 	local P = MB.Props
@@ -3075,7 +3622,7 @@ return function(b, MB, W)
 	P.poster(b, { 1085, 6, -1525 }, -120, { 12, 3 }, { 240, 200, 40 }, "PELIGRO · CANTERA", { 30, 30, 30 }, "GothamBlack")
 end
 ]=]
-FUENTES_ZONAS["Ciudadela"] = [=[
+ZONAS["Ciudadela"] = [=[
 -- Ciudadela: barrio residencial amurallado donde viven supervivientes. Tiene luz, huertos,
 -- placas solares, iglesia, torres de vigilancia y casas (algunas se pueden recorrer).
 return function(b, MB, W)
@@ -3136,6 +3683,7 @@ return function(b, MB, W)
 	P.pallet(b, { -350, 0, 770 }, 20)
 	b:box({ name = "Chapas", size = { 10, 2, 8 }, pos = { -370, 1, 780 }, color = { 120, 90, 70 }, mat = "CorrodedMetal" })
 	P.campfire(b, { -150, 0, 1100 }, true)
+	P.fireBarrel(b, { -141, 0, 1093 })
 	for k = 0, 3 do
 		P.bench(b, { -170 + k * 9, 0, 1090 }, 0, { 120, 90, 60 })
 	end
@@ -3143,7 +3691,7 @@ return function(b, MB, W)
 	W.spawn(-100, 920, -90)
 end
 ]=]
-FUENTES_ZONAS["ColinaAlta"] = [=[
+ZONAS["ColinaAlta"] = [=[
 -- Colina Alta: comunidad en lo alto de una meseta, con empalizada, mansión, huertos, herrería y caravanas.
 return function(b, MB, W)
 	local P = MB.Props
@@ -3185,7 +3733,7 @@ return function(b, MB, W)
 	b:box({ name = "Forja", size = { 8, 4, 6 }, pos = { fx, y + 2, fz }, color = { 90, 80, 74 }, mat = "Brick" })
 	b:cylinder({ name = "Chimenea", length = 12, diameter = 2, pos = { fx + 2, y + 10, fz }, color = { 90, 80, 74 }, mat = "Brick" })
 	local fire = b:box({ name = "Brasas", size = { 4, 0.6, 3 }, pos = { fx - 1, y + 4.3, fz }, color = { 255, 120, 40 }, mat = "Neon", folder = "Decoracion" })
-	MB.light(fire, "Point", { color = { 255, 140, 60 }, brightness = 1.5, range = 16 })
+	MB.fire(fire, { size = 3, smoke = false, range = 16, brightness = 1.5 })
 	b:box({ name = "Yunque", size = { 2.4, 2, 1.2 }, pos = { fx - 8, y + 1, fz + 2 }, color = { 50, 50, 54 }, mat = "Metal" })
 	b:box({ name = "Tejadillo", size = { 16, 0.6, 12 }, pos = { fx - 3, y + 9, fz + 1 }, color = { 100, 80, 60 }, mat = "WoodPlanks", folder = "Decoracion" })
 	for i, t in ipairs({ { cx - 10, cz - 80 }, { cx + 15, cz - 84 }, { cx + 40, cz - 76 } }) do
@@ -3206,7 +3754,7 @@ return function(b, MB, W)
 	W.spawn(cx - 30, cz - 10, -90)
 end
 ]=]
-FUENTES_ZONAS["Comisaria"] = [=[
+ZONAS["Comisaria"] = [=[
 -- Comisaría junto a la carretera: edificio en el que se puede entrar, coches patrulla y barricadas.
 return function(b, MB, W)
 	local P = MB.Props
@@ -3228,7 +3776,7 @@ return function(b, MB, W)
 	W.spawn(-1370, -80, 90)
 end
 ]=]
-FUENTES_ZONAS["Condado"] = [=[
+ZONAS["Condado"] = [=[
 -- Ciudad del Condado: ciudad en ruinas con hospital (planta baja recorrible), oficinas rotas,
 -- gasolinera, campamento militar y un control de cuarentena amurallado en la entrada sur.
 return function(b, MB, W)
@@ -3420,7 +3968,7 @@ return function(b, MB, W)
 	W.spawn(600, -1600, 0)
 end
 ]=]
-FUENTES_ZONAS["Estacion"] = [=[
+ZONAS["Estacion"] = [=[
 -- Estación Término: final de la vía del tren con andén cubierto, estación (se puede entrar),
 -- vagones abandonados en las vías muertas, almacén y depósito de agua.
 return function(b, MB, W)
@@ -3461,6 +4009,7 @@ return function(b, MB, W)
 		P.tent(b, { t[1], 0, t[2] }, i * 30, { 110, 100, 80 })
 	end
 	P.campfire(b, { -268, 0, -238 }, true)
+	P.fireBarrel(b, { -259, 0, -246 })
 	P.crate(b, { -300, 0, -300 }, 4.5, 20)
 	P.crate(b, { -296, 0, -296 }, 3.5, -10)
 	-- Cartel de bienvenida
@@ -3474,7 +4023,7 @@ return function(b, MB, W)
 	W.spawn(-380, -200, 0)
 end
 ]=]
-FUENTES_ZONAS["Granjas"] = [=[
+ZONAS["Granjas"] = [=[
 -- Granjas del Norte: granja con casa, granero, silos y molino, campos de cultivo y una pista de aterrizaje.
 return function(b, MB, W)
 	local P = MB.Props
@@ -3562,7 +4111,7 @@ return function(b, MB, W)
 	W.spawn(-920, -1690, 180)
 end
 ]=]
-FUENTES_ZONAS["Ladera"] = [=[
+ZONAS["Ladera"] = [=[
 -- Ladera: barrio de casas abandonadas a lo largo de la carretera de la costa, con una calle sin salida.
 return function(b, MB, W)
 	local P = MB.Props
@@ -3610,7 +4159,7 @@ return function(b, MB, W)
 	W.spawn(600, 900, 90)
 end
 ]=]
-FUENTES_ZONAS["LagoSereno"] = [=[
+ZONAS["LagoSereno"] = [=[
 -- Lago Sereno: urbanización en círculo junto al lago, con casas abandonadas (algunas se pueden recorrer).
 return function(b, MB, W)
 	local P = MB.Props
@@ -3656,7 +4205,7 @@ return function(b, MB, W)
 	W.spawn(cx + 10, cz - 20, 0)
 end
 ]=]
-FUENTES_ZONAS["Megatienda"] = [=[
+ZONAS["Megatienda"] = [=[
 -- Megatienda: gran supermercado abandonado en el que se puede entrar (estanterías, cajas,
 -- techo hundido) y su aparcamiento lleno de coches.
 return function(b, MB, W)
@@ -3713,7 +4262,7 @@ return function(b, MB, W)
 	W.spawn(-660, -470, 0)
 end
 ]=]
-FUENTES_ZONAS["Motel"] = [=[
+ZONAS["Motel"] = [=[
 -- Motel Luna: motel de carretera de dos plantas con pasarela, recepción, aparcamiento y cartel.
 return function(b, MB, W)
 	local P = MB.Props
@@ -3751,7 +4300,7 @@ return function(b, MB, W)
 	W.spawn(-680, 60, 0)
 end
 ]=]
-FUENTES_ZONAS["Penal"] = [=[
+ZONAS["Penal"] = [=[
 -- Penal: prisión con doble valla, torres, dos pabellones de celdas en los que se puede entrar, patio y oficinas.
 return function(b, MB, W)
 	local P = MB.Props
@@ -3821,7 +4370,7 @@ return function(b, MB, W)
 	W.spawn(-1515, 380, 180)
 end
 ]=]
-FUENTES_ZONAS["Refugio"] = [=[
+ZONAS["Refugio"] = [=[
 -- Refugio: fábrica abandonada junto a la costa, final de la vía del tren, con naves, chimeneas,
 -- vagones, contenedores y una grúa.
 return function(b, MB, W)
@@ -3875,7 +4424,7 @@ return function(b, MB, W)
 	W.spawn(960, 790, 0)
 end
 ]=]
-FUENTES_ZONAS["Villamuro"] = [=[
+ZONAS["Villamuro"] = [=[
 -- Villamuro: pueblo de supervivientes rodeado por una muralla de chapas y camiones, con torres de vigilancia.
 return function(b, MB, W)
 	local P = MB.Props
@@ -3923,6 +4472,7 @@ return function(b, MB, W)
 		P.tent(b, { t[1], 0, t[2] }, 15, { 92, 110, 70 })
 	end
 	P.campfire(b, { -1590, 0, -700 }, true)
+	P.fireBarrel(b, { -1581, 0, -708 })
 	local ax, az = -1650, -555
 	for i = 0, 23 do
 		local a = math.rad(i * 15)
@@ -3939,7 +4489,7 @@ return function(b, MB, W)
 	W.spawn(-1600, -640, -90)
 end
 ]=]
-FUENTES_ZONAS["ZonaProhibida"] = [=[
+ZONAS["ZonaProhibida"] = [=[
 -- Zona Prohibida: campamento militar de cuarentena junto a la costa, con muros de hormigón,
 -- tiendas, camiones y un helicóptero estrellado.
 return function(b, MB, W)
@@ -3998,45 +4548,748 @@ return function(b, MB, W)
 	P.watchTower(b, { -1590, 0, 1310 }, 0, 16)
 end
 ]=]
+local CLIMA_CONFIG = [=[
+--[[
+	Configuración del clima del mundo abierto (va en ReplicatedStorage como ClimaConfig).
+	La usan ClimaServidor (cambia el clima, la luz, el viento y la nieve en el suelo) y
+	ClimaCliente (lluvia, nieve, polvo, rayos y sonidos de cada jugador).
+]]
+local Config = {}
 
-local function modulo(nombre, fuente, padre)
-	local m = Instance.new("ModuleScript")
-	m.Name = nombre
-	m.Source = fuente
-	m.Parent = padre
-	return m
+-- Cuánto dura cada clima (en minutos) y cuánto tarda en pasar de uno a otro (en segundos)
+Config.DuracionMinima = 4
+Config.DuracionMaxima = 9
+Config.Transicion = 30
+-- Clima con el que empieza el servidor (nil = al azar)
+Config.ClimaInicial = "Nublado"
+
+-- Ciclo de día y noche: minutos que dura un día completo (0 = hora fija)
+Config.MinutosPorDia = 0
+Config.HoraFija = 14.5
+
+--[[
+	SONIDOS. Roblox no trae de serie sonidos de lluvia ni de truenos, así que pega aquí los IDs.
+	En Studio: Ver > Caja de herramientas > Audio, busca "rain", "thunder", "wind", "birds", "crickets"...,
+	elige uno, clic derecho > Copiar ID del recurso y pégalo como "rbxassetid://NUMERO".
+	Los sonidos subidos por la cuenta "Roblox" son gratis y funcionan en cualquier juego.
+	Si un hueco se queda vacío ("") ese sonido simplemente no suena.
+]]
+Config.Sonidos = {
+	Lluvia = "",                                     -- lluvia suave, en bucle
+	LluviaFuerte = "",                               -- lluvia fuerte / aguacero, en bucle
+	Viento = "rbxasset://sounds/action_falling.mp3", -- viento (viene con Roblox), en bucle
+	Pajaros = "",                                    -- pájaros de día, en bucle
+	Ambiente = "",                                   -- ambiente de bosque o grillos, en bucle
+	Truenos = { "", "", "" },                        -- truenos (uno o varios, sin bucle)
+	Fuego = "",                                      -- crepitar de hoguera, en bucle (suena cerca de cada fuego)
+}
+
+-- Texturas de las gotas y los copos ("" = la textura de partículas que trae Roblox)
+Config.TexturaLluvia = ""
+Config.TexturaNieve = ""
+
+-- Colores del terreno normales y cubiertos de nieve
+Config.ColoresTerreno = {
+	Grass = { 76, 100, 58 }, LeafyGrass = { 62, 86, 48 }, Ground = { 98, 86, 68 }, Mud = { 74, 64, 50 },
+	Rock = { 108, 106, 102 }, Slate = { 98, 100, 102 }, Basalt = { 72, 72, 76 }, Sand = { 190, 178, 144 }, Snow = { 236, 240, 246 },
+}
+Config.ColoresNevado = {
+	Grass = { 226, 232, 238 }, LeafyGrass = { 214, 222, 228 }, Ground = { 214, 218, 224 }, Mud = { 190, 196, 204 },
+	Rock = { 196, 200, 206 }, Slate = { 192, 196, 202 }, Basalt = { 186, 190, 198 }, Sand = { 226, 230, 236 }, Snow = { 240, 244, 250 },
+}
+
+--[[
+	Climas. peso = probabilidad relativa de que salga.
+	luz: Lighting · atmosfera: niebla · nubes · color: corrección de color · rayosSol · brillo
+	viento: dirección y fuerza (mueve la hierba del terreno, las nubes y las partículas)
+	olas: tamaño y velocidad del oleaje · agua: color y transparencia del agua (con lluvia baja turbia)
+	lluvia/nieve/polvo: cantidad de partículas (0 = nada)
+	rayos: hay relámpagos y truenos · nevar: el suelo se va cubriendo de nieve
+	sonidos: volumen de cada sonido (0 a 1)
+]]
+Config.Climas = {
+	Soleado = {
+		peso = 4,
+		luz = { Brightness = 3, Ambient = { 118, 118, 110 }, OutdoorAmbient = { 158, 158, 148 }, EnvironmentDiffuseScale = 0.8, EnvironmentSpecularScale = 0.6, ExposureCompensation = 0, ShadowSoftness = 0.15 },
+		atmosfera = { Density = 0.26, Offset = 0.1, Haze = 1, Glare = 0.4, Color = { 199, 214, 226 }, Decay = { 110, 128, 150 } },
+		nubes = { Cover = 0.4, Density = 0.5, Color = { 255, 255, 255 } },
+		color = { Brightness = 0.02, Contrast = 0.1, Saturation = 0.05, TintColor = { 255, 250, 240 } },
+		rayosSol = 0.15, brillo = 0.3,
+		viento = { 6, 0, 3 }, olas = { 0.08, 6 }, agua = { { 30, 84, 90 }, 0.5 },
+		lluvia = 0, nieve = 0, polvo = 0, rayos = false, nevar = false,
+		sonidos = { Pajaros = 0.5, Ambiente = 0.3, Viento = 0.08 },
+	},
+	Nublado = {
+		peso = 3,
+		luz = { Brightness = 2, Ambient = { 108, 112, 110 }, OutdoorAmbient = { 136, 142, 138 }, EnvironmentDiffuseScale = 0.8, EnvironmentSpecularScale = 0.5, ExposureCompensation = 0.1, ShadowSoftness = 0.45 },
+		atmosfera = { Density = 0.35, Offset = 0.12, Haze = 1.9, Glare = 0.1, Color = { 198, 205, 204 }, Decay = { 118, 128, 128 } },
+		nubes = { Cover = 0.84, Density = 0.65, Color = { 202, 206, 208 } },
+		color = { Brightness = 0, Contrast = 0.07, Saturation = -0.12, TintColor = { 244, 248, 246 } },
+		rayosSol = 0.04, brillo = 0.25,
+		viento = { 10, 0, 6 }, olas = { 0.12, 7 }, agua = { { 34, 74, 78 }, 0.35 },
+		lluvia = 0, nieve = 0, polvo = 0, rayos = false, nevar = false,
+		sonidos = { Pajaros = 0.15, Ambiente = 0.3, Viento = 0.2 },
+	},
+	Niebla = {
+		peso = 2,
+		luz = { Brightness = 1.6, Ambient = { 120, 124, 122 }, OutdoorAmbient = { 140, 146, 144 }, EnvironmentDiffuseScale = 0.9, EnvironmentSpecularScale = 0.4, ExposureCompensation = 0.15, ShadowSoftness = 0.8 },
+		atmosfera = { Density = 0.62, Offset = 0.25, Haze = 3, Glare = 0, Color = { 196, 202, 200 }, Decay = { 150, 158, 156 } },
+		nubes = { Cover = 0.9, Density = 0.7, Color = { 210, 214, 214 } },
+		color = { Brightness = 0.02, Contrast = 0.02, Saturation = -0.22, TintColor = { 240, 246, 246 } },
+		rayosSol = 0, brillo = 0.2,
+		viento = { 2, 0, 1 }, olas = { 0.05, 4 }, agua = { { 46, 74, 76 }, 0.3 },
+		lluvia = 0, nieve = 0, polvo = 0, rayos = false, nevar = false,
+		sonidos = { Ambiente = 0.25, Viento = 0.06 },
+	},
+	Viento = {
+		peso = 2,
+		luz = { Brightness = 2.4, Ambient = { 114, 116, 110 }, OutdoorAmbient = { 150, 152, 144 }, EnvironmentDiffuseScale = 0.8, EnvironmentSpecularScale = 0.5, ExposureCompensation = 0, ShadowSoftness = 0.3 },
+		atmosfera = { Density = 0.32, Offset = 0.1, Haze = 1.8, Glare = 0.2, Color = { 206, 204, 190 }, Decay = { 140, 130, 110 } },
+		nubes = { Cover = 0.62, Density = 0.5, Color = { 236, 236, 232 } },
+		color = { Brightness = 0, Contrast = 0.08, Saturation = -0.05, TintColor = { 252, 248, 238 } },
+		rayosSol = 0.08, brillo = 0.25,
+		viento = { 55, 0, 26 }, olas = { 0.3, 14 }, agua = { { 38, 76, 78 }, 0.3 },
+		lluvia = 0, nieve = 0, polvo = 60, rayos = false, nevar = false,
+		sonidos = { Viento = 0.9, Ambiente = 0.1 },
+	},
+	Lluvia = {
+		peso = 3,
+		luz = { Brightness = 1.3, Ambient = { 90, 96, 100 }, OutdoorAmbient = { 110, 118, 124 }, EnvironmentDiffuseScale = 0.9, EnvironmentSpecularScale = 1, ExposureCompensation = 0.1, ShadowSoftness = 0.7 },
+		atmosfera = { Density = 0.45, Offset = 0.15, Haze = 2.2, Glare = 0, Color = { 170, 180, 186 }, Decay = { 100, 110, 120 } },
+		nubes = { Cover = 0.97, Density = 0.82, Color = { 120, 126, 132 } },
+		color = { Brightness = 0, Contrast = 0.05, Saturation = -0.25, TintColor = { 230, 238, 245 } },
+		rayosSol = 0, brillo = 0.2,
+		viento = { 12, 0, 8 }, olas = { 0.2, 10 }, agua = { { 54, 70, 62 }, 0.15 },
+		lluvia = 500, nieve = 0, polvo = 0, rayos = false, nevar = false,
+		sonidos = { Lluvia = 0.8, Viento = 0.25 },
+	},
+	Tormenta = {
+		peso = 1.5,
+		luz = { Brightness = 0.9, Ambient = { 70, 74, 82 }, OutdoorAmbient = { 86, 92, 104 }, EnvironmentDiffuseScale = 1, EnvironmentSpecularScale = 1, ExposureCompensation = 0.15, ShadowSoftness = 0.8 },
+		atmosfera = { Density = 0.52, Offset = 0.18, Haze = 2.6, Glare = 0, Color = { 140, 146, 156 }, Decay = { 80, 86, 98 } },
+		nubes = { Cover = 1, Density = 1, Color = { 80, 84, 92 } },
+		color = { Brightness = -0.02, Contrast = 0.12, Saturation = -0.3, TintColor = { 220, 228, 240 } },
+		rayosSol = 0, brillo = 0.2,
+		viento = { 40, 0, 22 }, olas = { 0.45, 18 }, agua = { { 58, 66, 58 }, 0.08 },
+		lluvia = 950, nieve = 0, polvo = 0, rayos = true, nevar = false,
+		sonidos = { LluviaFuerte = 1, Lluvia = 0.4, Viento = 0.6 },
+	},
+	Nieve = {
+		peso = 1.2,
+		luz = { Brightness = 1.8, Ambient = { 130, 136, 146 }, OutdoorAmbient = { 170, 178, 190 }, EnvironmentDiffuseScale = 1, EnvironmentSpecularScale = 0.6, ExposureCompensation = 0.1, ShadowSoftness = 0.7 },
+		atmosfera = { Density = 0.5, Offset = 0.2, Haze = 2.4, Glare = 0, Color = { 220, 228, 236 }, Decay = { 170, 180, 196 } },
+		nubes = { Cover = 0.95, Density = 0.7, Color = { 230, 234, 240 } },
+		color = { Brightness = 0.02, Contrast = 0.04, Saturation = -0.2, TintColor = { 232, 240, 255 } },
+		rayosSol = 0.02, brillo = 0.3,
+		viento = { 8, 0, 5 }, olas = { 0.06, 4 }, agua = { { 40, 70, 84 }, 0.35 },
+		lluvia = 0, nieve = 350, polvo = 0, rayos = false, nevar = true,
+		sonidos = { Viento = 0.35 },
+	},
+}
+
+-- Convierte un clima en propiedades para cada objeto de iluminación
+local function rgb(c)
+	return Color3.fromRGB(c[1], c[2], c[3])
+end
+local function convertir(t)
+	local out = {}
+	for k, v in pairs(t) do
+		out[k] = (type(v) == "table") and rgb(v) or v
+	end
+	return out
+end
+function Config.propiedades(nombre)
+	local c = Config.Climas[nombre]
+	return {
+		Lighting = convertir(c.luz),
+		Atmosfera = convertir(c.atmosfera),
+		Nubes = convertir(c.nubes),
+		ColorClima = convertir(c.color),
+		RayosSol = { Intensity = c.rayosSol },
+		BrilloClima = { Intensity = c.brillo },
+		Terrain = { WaterWaveSize = c.olas[1], WaterWaveSpeed = c.olas[2], WaterColor = rgb(c.agua[1]), WaterTransparency = c.agua[2] },
+		Viento = Vector3.new(c.viento[1], c.viento[2], c.viento[3]),
+	}
 end
 
--- MapBuilder (si ya existía, conserva sus mapas de duelo)
-local mapBuilder = modulo("MapBuilder", FUENTE_MAPBUILDER)
-modulo("Props", FUENTE_PROPS, mapBuilder)
-local anterior = ServerStorage:FindFirstChild("MapBuilder")
-if anterior then
-	local mapas = anterior:FindFirstChild("Mapas")
-	if mapas then mapas.Parent = mapBuilder end
-	anterior:Destroy()
+-- Crea (si faltan) los objetos de iluminación que usa el clima y los devuelve por nombre
+function Config.objetos()
+	local Lighting = game:GetService("Lighting")
+	local terrain = workspace.Terrain
+	local function asegurar(parent, clase, nombre)
+		local obj = parent:FindFirstChild(nombre)
+		if not obj then
+			obj = Instance.new(clase)
+			obj.Name = nombre
+			obj.Parent = parent
+		end
+		return obj
+	end
+	local o = {
+		Lighting = Lighting,
+		Terrain = terrain,
+		Atmosfera = asegurar(Lighting, "Atmosphere", "Atmosfera"),
+		ColorClima = asegurar(Lighting, "ColorCorrectionEffect", "ColorClima"),
+		RayosSol = asegurar(Lighting, "SunRaysEffect", "RayosSol"),
+		BrilloClima = asegurar(Lighting, "BloomEffect", "BrilloClima"),
+		Nubes = asegurar(terrain, "Clouds", "Nubes"),
+	}
+	terrain.WaterReflectance = 1
+	o.BrilloClima.Threshold = 0.95
+	o.BrilloClima.Size = 24
+	o.RayosSol.Spread = 0.7
+	return o
 end
-mapBuilder.Parent = ServerStorage
 
--- MundoAbierto con sus datos y una carpeta de zonas
-local viejo = ServerStorage:FindFirstChild("MundoAbierto")
-if viejo then viejo:Destroy() end
-local mundo = modulo("MundoAbierto", FUENTE_MUNDO)
-modulo("Mundo", FUENTE_DATOS, mundo)
+-- Aplica un clima al instante (sin transición)
+function Config.aplicar(nombre)
+	local o = Config.objetos()
+	for objeto, props in pairs(Config.propiedades(nombre)) do
+		if objeto == "Viento" then
+			workspace.GlobalWind = props
+		else
+			for prop, valor in pairs(props) do
+				o[objeto][prop] = valor
+			end
+		end
+	end
+	for mat, c in pairs(Config.ColoresTerreno) do
+		o.Terrain:SetMaterialColor(Enum.Material[mat], rgb(c))
+	end
+end
+
+return Config
+]=]
+local CLIMA_SERVIDOR = [=[
+--[[
+	ClimaServidor (va en ServerScriptService).
+	Cambia el clima cada pocos minutos con transiciones suaves (luz, niebla, nubes, viento y oleaje),
+	va cubriendo el suelo de nieve cuando nieva y lanza los rayos de las tormentas.
+
+	Para forzar un clima desde otro script del servidor:
+		game.ServerStorage.CambiarClima:Fire("Tormenta")
+	El creador del juego (o cualquiera en Studio) también puede escribir en el chat: /clima tormenta
+]]
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
+local TweenService = game:GetService("TweenService")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local Config = require(ReplicatedStorage:WaitForChild("ClimaConfig"))
+
+local objetos = Config.objetos()
+local terrain = workspace.Terrain
+
+local function asegurar(parent, clase, nombre)
+	local obj = parent:FindFirstChild(nombre)
+	if not obj then
+		obj = Instance.new(clase)
+		obj.Name = nombre
+		obj.Parent = parent
+	end
+	return obj
+end
+local rayo = asegurar(ReplicatedStorage, "RemoteEvent", "ClimaRayo")
+local cambiar = asegurar(ServerStorage, "BindableEvent", "CambiarClima")
+
+local function rgb(c)
+	return Color3.fromRGB(c[1], c[2], c[3])
+end
+
+-- =====================================================================
+--  Cambio de clima
+-- =====================================================================
+local actual = nil
+local finClima = 0
+
+local function duracion()
+	return (Config.DuracionMinima + math.random() * (Config.DuracionMaxima - Config.DuracionMinima)) * 60
+end
+
+local function ponerClima(nombre, instantaneo)
+	if not Config.Climas[nombre] then
+		warn("[Clima] No existe el clima " .. tostring(nombre))
+		return
+	end
+	actual = nombre
+	finClima = os.clock() + duracion()
+	if instantaneo then
+		Config.aplicar(nombre)
+	else
+		local info = TweenInfo.new(Config.Transicion, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+		for objeto, props in pairs(Config.propiedades(nombre)) do
+			if objeto == "Viento" then
+				TweenService:Create(workspace, info, { GlobalWind = props }):Play()
+			else
+				TweenService:Create(objetos[objeto], info, props):Play()
+			end
+		end
+	end
+	ReplicatedStorage:SetAttribute("Clima", nombre)
+	ReplicatedStorage:SetAttribute("ClimaDesde", os.time())
+	print("[Clima] Ahora: " .. nombre)
+end
+
+-- Elige el siguiente clima al azar según su peso (nunca repite el actual)
+local function elegir()
+	local total = 0
+	for nombre, c in pairs(Config.Climas) do
+		if nombre ~= actual then
+			total = total + c.peso
+		end
+	end
+	local r = math.random() * total
+	for nombre, c in pairs(Config.Climas) do
+		if nombre ~= actual then
+			r = r - c.peso
+			if r <= 0 then
+				return nombre
+			end
+		end
+	end
+	return "Nublado"
+end
+
+-- =====================================================================
+--  Nieve en el suelo: se acumula en 2 minutos mientras nieva y se derrite en 3
+-- =====================================================================
+local nieveSuelo = 0
+local function pintarSuelo(t)
+	for mat, c in pairs(Config.ColoresTerreno) do
+		local blanco = Config.ColoresNevado[mat] or c
+		terrain:SetMaterialColor(Enum.Material[mat], rgb(c):Lerp(rgb(blanco), t))
+	end
+end
+task.spawn(function()
+	while true do
+		local objetivo = (actual and Config.Climas[actual].nevar) and 1 or 0
+		if math.abs(objetivo - nieveSuelo) > 0.001 then
+			local paso = (objetivo > nieveSuelo) and (1 / 120) or (1 / 180)
+			nieveSuelo = nieveSuelo + math.clamp(objetivo - nieveSuelo, -paso, paso)
+			pintarSuelo(nieveSuelo)
+		end
+		task.wait(1)
+	end
+end)
+
+-- =====================================================================
+--  Rayos: cerca de un jugador al azar, cada 6-16 segundos durante las tormentas
+-- =====================================================================
+task.spawn(function()
+	while true do
+		task.wait(6 + math.random() * 10)
+		if actual and Config.Climas[actual].rayos then
+			local centro = Vector3.new(0, 0, 0)
+			local jugadores = Players:GetPlayers()
+			if #jugadores > 0 then
+				local j = jugadores[math.random(1, #jugadores)]
+				local raiz = j.Character and j.Character:FindFirstChild("HumanoidRootPart")
+				if raiz then
+					centro = raiz.Position
+				end
+			end
+			local angulo = math.random() * math.pi * 2
+			local distancia = 120 + math.random() * 650
+			rayo:FireAllClients(centro + Vector3.new(math.cos(angulo) * distancia, 0, math.sin(angulo) * distancia))
+		end
+	end
+end)
+
+-- =====================================================================
+--  Día y noche
+-- =====================================================================
+if Config.MinutosPorDia > 0 then
+	task.spawn(function()
+		while true do
+			local dt = task.wait(0.5)
+			Lighting.ClockTime = (Lighting.ClockTime + dt * 24 / (Config.MinutosPorDia * 60)) % 24
+		end
+	end)
+else
+	Lighting.ClockTime = Config.HoraFija
+end
+
+-- =====================================================================
+--  Cambiar el clima a mano
+-- =====================================================================
+cambiar.Event:Connect(function(nombre)
+	ponerClima(nombre)
+end)
+
+local nombres = {}
+for nombre in pairs(Config.Climas) do
+	nombres[string.lower(nombre)] = nombre
+end
+local function escuchar(jugador)
+	jugador.Chatted:Connect(function(mensaje)
+		local pedido = string.match(string.lower(mensaje), "^/clima%s+(%S+)")
+		if pedido and (RunService:IsStudio() or jugador.UserId == game.CreatorId) then
+			if nombres[pedido] then
+				ponerClima(nombres[pedido])
+			else
+				warn("[Clima] Climas disponibles: Soleado, Nublado, Niebla, Viento, Lluvia, Tormenta, Nieve")
+			end
+		end
+	end)
+end
+Players.PlayerAdded:Connect(escuchar)
+for _, j in ipairs(Players:GetPlayers()) do
+	escuchar(j)
+end
+
+-- =====================================================================
+--  Bucle principal
+-- =====================================================================
+ponerClima(Config.ClimaInicial or elegir(), true)
+while true do
+	task.wait(5)
+	if os.clock() >= finClima then
+		ponerClima(elegir())
+	end
+end
+]=]
+local CLIMA_CLIENTE = [=[
+--[[
+	ClimaCliente (va en StarterPlayer > StarterPlayerScripts).
+	Lluvia, nieve y polvo alrededor de la cámara, relámpagos con trueno y sonidos de cada clima.
+	Bajo techo deja de llover encima y los sonidos se oyen apagados.
+	También hace parpadear la luz de los fuegos (hogueras, bidones) y les pone el crepitar si hay ID.
+]]
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local SoundService = game:GetService("SoundService")
+local Lighting = game:GetService("Lighting")
+local Debris = game:GetService("Debris")
+local CollectionService = game:GetService("CollectionService")
+local Config = require(ReplicatedStorage:WaitForChild("ClimaConfig"))
+
+local jugador = Players.LocalPlayer
+local camara = workspace.CurrentCamera
+
+-- =====================================================================
+--  Partículas: una pieza invisible que sigue a la cámara desde arriba
+-- =====================================================================
+local emisor = Instance.new("Part")
+emisor.Name = "ClimaEmisor"
+emisor.Anchored = true
+emisor.CanCollide = false
+emisor.CanQuery = false
+emisor.CanTouch = false
+emisor.CastShadow = false
+emisor.Transparency = 1
+emisor.Size = Vector3.new(170, 1, 170)
+emisor.Parent = camara
+
+local function particulas(nombre, props)
+	local e = Instance.new("ParticleEmitter")
+	e.Name = nombre
+	for k, v in pairs(props) do
+		e[k] = v
+	end
+	e.Rate = 0
+	e.Parent = emisor
+	return e
+end
+
+local lluvia = particulas("Lluvia", {
+	EmissionDirection = Enum.NormalId.Bottom,
+	Orientation = Enum.ParticleOrientation.VelocityParallel,
+	Speed = NumberRange.new(85, 105),
+	Lifetime = NumberRange.new(0.75, 0.9),
+	Size = NumberSequence.new(0.12),
+	Squash = NumberSequence.new(2.6),
+	Transparency = NumberSequence.new(0.35),
+	Color = ColorSequence.new(Color3.fromRGB(196, 206, 216)),
+	LightEmission = 0.05,
+	Drag = 0.2,
+	WindAffectsDrag = true,
+})
+local nieve = particulas("Nieve", {
+	EmissionDirection = Enum.NormalId.Bottom,
+	Speed = NumberRange.new(6, 9),
+	Lifetime = NumberRange.new(9, 11),
+	SpreadAngle = Vector2.new(25, 25),
+	Size = NumberSequence.new(0.35),
+	Rotation = NumberRange.new(0, 360),
+	RotSpeed = NumberRange.new(-60, 60),
+	Transparency = NumberSequence.new(0.05),
+	Color = ColorSequence.new(Color3.fromRGB(255, 255, 255)),
+	LightEmission = 0.2,
+	Drag = 0.8,
+	WindAffectsDrag = true,
+})
+local polvo = particulas("Polvo", {
+	EmissionDirection = Enum.NormalId.Bottom,
+	Speed = NumberRange.new(4, 8),
+	Lifetime = NumberRange.new(5, 7),
+	SpreadAngle = Vector2.new(70, 70),
+	Size = NumberSequence.new(0.45),
+	Rotation = NumberRange.new(0, 360),
+	RotSpeed = NumberRange.new(-120, 120),
+	Transparency = NumberSequence.new(0.3),
+	Color = ColorSequence.new(Color3.fromRGB(150, 126, 84), Color3.fromRGB(110, 120, 70)),
+	Drag = 1.5,
+	WindAffectsDrag = true,
+})
+if Config.TexturaLluvia ~= "" then
+	lluvia.Texture = Config.TexturaLluvia
+end
+if Config.TexturaNieve ~= "" then
+	nieve.Texture = Config.TexturaNieve
+end
+
+-- =====================================================================
+--  Sonidos en bucle (los huecos vacíos de la configuración no suenan)
+-- =====================================================================
+local sonidos = {}
+for nombre, id in pairs(Config.Sonidos) do
+	if nombre ~= "Truenos" and nombre ~= "Fuego" and id ~= "" then
+		local s = Instance.new("Sound")
+		s.Name = "Clima" .. nombre
+		s.SoundId = id
+		s.Looped = true
+		s.Volume = 0
+		if nombre == "Viento" then
+			s.PlaybackSpeed = 0.6
+		end
+		local apagado = Instance.new("EqualizerSoundEffect")
+		apagado.HighGain = -25
+		apagado.MidGain = -8
+		apagado.LowGain = 0
+		apagado.Enabled = false
+		apagado.Parent = s
+		s.Parent = SoundService
+		s:Play()
+		sonidos[nombre] = s
+	end
+end
+
+-- =====================================================================
+--  ¿Hay techo encima? (deja de llover encima y se apagan los sonidos)
+-- =====================================================================
+local params = RaycastParams.new()
+params.FilterType = Enum.RaycastFilterType.Exclude
+local dentro = false
+local function comprobarTecho()
+	local filtro = { emisor }
+	if jugador.Character then
+		table.insert(filtro, jugador.Character)
+	end
+	params.FilterDescendantsInstances = filtro
+	dentro = workspace:Raycast(camara.CFrame.Position, Vector3.new(0, 150, 0), params) ~= nil
+end
+
+-- =====================================================================
+--  Relámpagos y truenos
+-- =====================================================================
+local destello = Instance.new("ColorCorrectionEffect")
+destello.Name = "Relampago"
+destello.Parent = Lighting
+
+local function relampago(pos)
+	local suelo = pos
+	local golpe = workspace:Raycast(pos + Vector3.new(0, 600, 0), Vector3.new(0, -1200, 0))
+	if golpe then
+		suelo = golpe.Position
+	end
+	-- Rayo en zigzag
+	local tramos = {}
+	local p = suelo + Vector3.new(0, 420, 0)
+	for i = 1, 10 do
+		local siguiente = (i == 10) and suelo or (p + Vector3.new(math.random(-20, 20), -42, math.random(-20, 20)))
+		local t = Instance.new("Part")
+		t.Anchored = true
+		t.CanCollide = false
+		t.CanQuery = false
+		t.CanTouch = false
+		t.CastShadow = false
+		t.Material = Enum.Material.Neon
+		t.Color = Color3.fromRGB(214, 226, 255)
+		t.Size = Vector3.new(0.9, 0.9, (siguiente - p).Magnitude)
+		t.CFrame = CFrame.lookAt((p + siguiente) / 2, siguiente)
+		t.Parent = camara
+		table.insert(tramos, t)
+		p = siguiente
+	end
+	local luz = Instance.new("PointLight")
+	luz.Range = 60
+	luz.Brightness = 8
+	luz.Color = Color3.fromRGB(200, 214, 255)
+	luz.Parent = tramos[#tramos]
+	destello.Brightness = dentro and 0.15 or 0.5
+	TweenService:Create(destello, TweenInfo.new(0.4), { Brightness = 0 }):Play()
+	task.delay(0.18, function()
+		for _, t in ipairs(tramos) do
+			t:Destroy()
+		end
+	end)
+	-- El trueno llega más tarde y más flojo cuanto más lejos cae el rayo
+	local ids = {}
+	for _, id in ipairs(Config.Sonidos.Truenos or {}) do
+		if id ~= "" then
+			table.insert(ids, id)
+		end
+	end
+	if #ids > 0 then
+		local distancia = (suelo - camara.CFrame.Position).Magnitude
+		task.delay(distancia / 1200, function()
+			local s = Instance.new("Sound")
+			s.SoundId = ids[math.random(1, #ids)]
+			s.Volume = math.clamp(1.4 - distancia / 1200, 0.25, 1) * (dentro and 0.6 or 1)
+			s.PlaybackSpeed = 0.9 + math.random() * 0.2
+			s.Parent = SoundService
+			s:Play()
+			Debris:AddItem(s, 20)
+		end)
+	end
+end
+ReplicatedStorage:WaitForChild("ClimaRayo").OnClientEvent:Connect(relampago)
+
+-- =====================================================================
+--  Fuegos: la luz parpadea como una llama y, si hay ID, se oye crepitar al acercarse
+-- =====================================================================
+local lucesFuego = {}
+local function nuevaLuz(luz)
+	lucesFuego[luz] = { base = luz:GetAttribute("Base") or luz.Brightness, semilla = math.random() * 100 }
+end
+local function nuevoFuego(pieza)
+	if (Config.Sonidos.Fuego or "") ~= "" and not pieza:FindFirstChild("Crepitar") then
+		local s = Instance.new("Sound")
+		s.Name = "Crepitar"
+		s.SoundId = Config.Sonidos.Fuego
+		s.Looped = true
+		s.Volume = 0.6
+		s.RollOffMode = Enum.RollOffMode.InverseTapered
+		s.RollOffMinDistance = 6
+		s.RollOffMaxDistance = 60
+		s.Parent = pieza
+		s:Play()
+	end
+end
+for _, luz in ipairs(CollectionService:GetTagged("LuzFuego")) do
+	nuevaLuz(luz)
+end
+CollectionService:GetInstanceAddedSignal("LuzFuego"):Connect(nuevaLuz)
+CollectionService:GetInstanceRemovedSignal("LuzFuego"):Connect(function(luz)
+	lucesFuego[luz] = nil
+end)
+for _, pieza in ipairs(CollectionService:GetTagged("Fuego")) do
+	nuevoFuego(pieza)
+end
+CollectionService:GetInstanceAddedSignal("Fuego"):Connect(nuevoFuego)
+
+-- =====================================================================
+--  Bucle: sigue a la cámara y mezcla suavemente partículas y sonidos
+-- =====================================================================
+local tasas = { Lluvia = 0, Nieve = 0, Polvo = 0 }
+local siguienteTecho = 0
+RunService.RenderStepped:Connect(function(dt)
+	local clima = Config.Climas[ReplicatedStorage:GetAttribute("Clima") or ""] or Config.Climas.Nublado
+	local cf = camara.CFrame
+	local delante = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z) * 25
+	emisor.CFrame = CFrame.new(cf.Position + Vector3.new(0, 70, 0) + delante)
+
+	if os.clock() >= siguienteTecho then
+		siguienteTecho = os.clock() + 0.25
+		comprobarTecho()
+	end
+
+	local mezcla = math.min(1, dt * 0.4)
+	local fuera = dentro and 0 or 1
+	tasas.Lluvia = tasas.Lluvia + (clima.lluvia * fuera - tasas.Lluvia) * mezcla
+	tasas.Nieve = tasas.Nieve + (clima.nieve * fuera - tasas.Nieve) * mezcla
+	tasas.Polvo = tasas.Polvo + (clima.polvo * fuera - tasas.Polvo) * mezcla
+	lluvia.Rate = tasas.Lluvia
+	nieve.Rate = tasas.Nieve
+	polvo.Rate = tasas.Polvo
+
+	local fuerzaViento = math.clamp(workspace.GlobalWind.Magnitude / 45, 0.3, 1.3)
+	for nombre, s in pairs(sonidos) do
+		local objetivo = (clima.sonidos[nombre] or 0) * (dentro and 0.4 or 1)
+		if nombre == "Viento" then
+			objetivo = objetivo * fuerzaViento
+		end
+		s.Volume = s.Volume + (objetivo - s.Volume) * math.min(1, dt * 0.6)
+		s.EqualizerSoundEffect.Enabled = dentro
+	end
+
+	local t = os.clock()
+	for luz, d in pairs(lucesFuego) do
+		luz.Brightness = d.base * (0.82 + 0.26 * math.noise(t * 6, d.semilla) + 0.12 * math.noise(t * 17, d.semilla + 50))
+	end
+end)
+]=]
+
+local function crear(padre, clase, nombre, fuente)
+	local viejo = padre:FindFirstChild(nombre)
+	if viejo then viejo:Destroy() end
+	local s = Instance.new(clase)
+	s.Name = nombre
+	s.Source = fuente
+	s.Parent = padre
+	return s
+end
+
+-- Módulo del mundo con sus partes y sus zonas
+local mundo = crear(ServerStorage, "ModuleScript", "MundoAbierto", FUENTE_MUNDO)
+for nombre, fuente in pairs(FUENTES) do
+	crear(mundo, "ModuleScript", nombre, fuente)
+end
 local carpeta = Instance.new("Folder")
 carpeta.Name = "Zonas"
 carpeta.Parent = mundo
-for nombre, fuente in pairs(FUENTES_ZONAS) do
-	modulo(nombre, fuente, carpeta)
+for nombre, fuente in pairs(ZONAS) do
+	crear(carpeta, "ModuleScript", nombre, fuente)
 end
-mundo.Parent = ServerStorage
 
-local MapBuilder = require(mapBuilder)
+-- Clima
+local config = crear(ReplicatedStorage, "ModuleScript", "ClimaConfig", CLIMA_CONFIG)
+crear(ServerScriptService, "Script", "ClimaServidor", CLIMA_SERVIDOR)
+local jugadorScripts = StarterPlayer:FindFirstChild("StarterPlayerScripts") or Instance.new("StarterPlayerScripts", StarterPlayer)
+crear(jugadorScripts, "LocalScript", "ClimaCliente", CLIMA_CLIENTE)
+
+-- Carpeta para tus propios modelos 3D (árboles de la Toolbox...). Si ya existe no se toca
+local modelos = ServerStorage:FindFirstChild("ModelosMundo")
+if not modelos then
+	modelos = Instance.new("Folder")
+	modelos.Name = "ModelosMundo"
+	modelos.Parent = ServerStorage
+end
+for _, tipo in ipairs({ "Pino", "Roble", "Abedul", "Muerto", "Arbusto" }) do
+	if not modelos:FindFirstChild(tipo) then
+		local f = Instance.new("Folder")
+		f.Name = tipo
+		f.Parent = modelos
+	end
+end
+
+-- Ajustes para que se vea y vaya bien
 pcall(function() game:GetService("Lighting").Technology = Enum.Technology.Future end)
--- Con un mapa tan grande, cada jugador carga solo lo que tiene cerca
+pcall(function() game:GetService("MaterialService").Use2022Materials = true end)
 pcall(function() workspace.StreamingEnabled = true end)
-print("Construyendo el mundo abierto... puede tardar un minuto.")
+for _, nombre in ipairs({ "Baseplate", "SpawnLocation" }) do
+	local obj = workspace:FindFirstChild(nombre)
+	if obj and obj:IsA("BasePart") then obj:Destroy() end
+end
+
+local Mundo = require(mundo)
 local inicio = os.clock()
-local modelo = MapBuilder.build("MundoAbierto", require(mundo))
-MapBuilder.show(modelo, "MundoAbierto")
-print(string.format("Mundo abierto listo en %.0f segundos. Guarda el lugar para conservarlo.", os.clock() - inicio))
+print("[Mundo] 1/3 Construyendo las piezas...")
+local viejo = workspace:FindFirstChild("Mundo")
+if viejo then viejo:Destroy() end
+local modelo = Mundo.construir()
+modelo.Parent = workspace
+print("[Mundo] 2/3 Generando el terreno...")
+Mundo.generarTerreno(function(hechos, total)
+	if hechos % 32 == 0 then
+		print(string.format("[Mundo]     terreno %d%%", math.floor(hechos / total * 100)))
+	end
+end)
+print("[Mundo] 3/3 Aplicando el clima inicial...")
+local Clima = require(config)
+Clima.aplicar(Clima.ClimaInicial or "Nublado")
+game:GetService("Lighting").ClockTime = Clima.HoraFija
+print(string.format("[Mundo] Listo en %.0f segundos. Guarda el lugar para conservarlo.", os.clock() - inicio))

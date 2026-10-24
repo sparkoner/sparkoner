@@ -39,7 +39,7 @@ return function(b, MB, W)
 	b:box({ name = "Forja", size = { 8, 4, 6 }, pos = { fx, y + 2, fz }, color = { 90, 80, 74 }, mat = "Brick" })
 	b:cylinder({ name = "Chimenea", length = 12, diameter = 2, pos = { fx + 2, y + 10, fz }, color = { 90, 80, 74 }, mat = "Brick" })
 	local fire = b:box({ name = "Brasas", size = { 4, 0.6, 3 }, pos = { fx - 1, y + 4.3, fz }, color = { 255, 120, 40 }, mat = "Neon", folder = "Decoracion" })
-	MB.light(fire, "Point", { color = { 255, 140, 60 }, brightness = 1.5, range = 16 })
+	MB.fire(fire, { size = 3, smoke = false, range = 16, brightness = 1.5 })
 	b:box({ name = "Yunque", size = { 2.4, 2, 1.2 }, pos = { fx - 8, y + 1, fz + 2 }, color = { 50, 50, 54 }, mat = "Metal" })
 	b:box({ name = "Tejadillo", size = { 16, 0.6, 12 }, pos = { fx - 3, y + 9, fz + 1 }, color = { 100, 80, 60 }, mat = "WoodPlanks", folder = "Decoracion" })
 	for i, t in ipairs({ { cx - 10, cz - 80 }, { cx + 15, cz - 84 }, { cx + 40, cz - 76 } }) do

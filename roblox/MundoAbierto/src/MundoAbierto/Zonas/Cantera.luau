@@ -1,4 +1,4 @@
--- Cantera: gran agujero de roca en terrazas (el terreno se excava en Mundo.luau) con charca en el fondo,
+-- Cantera: gran agujero de roca en terrazas (el relieve se hace en Terreno.luau) con charca en el fondo,
 -- cintas transportadoras, camiones volquete, excavadora y planta de machaqueo.
 return function(b, MB, W)
 	local P = MB.Props

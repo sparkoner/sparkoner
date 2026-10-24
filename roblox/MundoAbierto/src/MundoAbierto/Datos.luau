@@ -1,5 +1,6 @@
--- Datos y utilidades del mundo abierto: costa, ríos, lagos, montañas, carreteras, vía del tren,
--- zonas, bosque y coches abandonados. X crece hacia el este y Z hacia el sur; el mundo va de -2048 a 2048.
+-- Datos y utilidades del mundo abierto: costa, ríos, lagos, carreteras, vía del tren, zonas y
+-- coches abandonados. X crece hacia el este y Z hacia el sur; el mundo va de -2048 a 2048.
+-- El relieve (colinas, montañas, valles y playas) se calcula en Terreno.luau a partir de estos datos.
 return function(b, MB)
 	local P = MB.Props
 	local W = {}
@@ -15,8 +16,6 @@ return function(b, MB)
 		{ 560, 1390 }, { 300, 1420 }, { 0, 1440 }, { -300, 1420 }, { -560, 1440 }, { -820, 1400 }, { -1080, 1460 },
 		{ -1300, 1420 }, { -1500, 1500 }, { -1700, 1480 }, { -2048, 1500 },
 	}
-	W.sea = { { 1150, 2048, -2048, 2048 }, { -2048, 2048, 1250, 2048 }, { 700, 2048, 650, 2048 } }
-	W.land = { { -2048, 1150, -2048, 650 }, { -2048, 700, 650, 1250 }, { 700, 1100, 650, 950 } }
 
 	-- Ríos (los puntos van de la fuente a la desembocadura)
 	W.rivers = {
@@ -29,22 +28,6 @@ return function(b, MB)
 	}
 	W.lakes = { { -1200, -30, 70 }, { -1250, 340, 90 }, { -150, -900, 100 } }
 
-	-- Montañas de roca en los bordes norte y oeste, y colinas de hierba en el interior: { x, z, radio, cima }
-	W.hills = {}
-	for _, x in ipairs({ -1960, -1420, -1080, -760, 40, 380, 720, 1060 }) do
-		table.insert(W.hills, { x, -2048, 180, 90, "Rock" })
-	end
-	for _, z in ipairs({ -1620, -1280, -940, -600, -260, 80, 420, 760, 1100, 1340 }) do
-		table.insert(W.hills, { -2048, z, 180, 90, "Rock" })
-	end
-	for _, h in ipairs({
-		{ -450, -1450, 180, 30 }, { 100, -750, 180, 30 }, { 600, -1000, 180, 30 }, { 700, 250, 220, 45 },
-		{ -560, 330, 180, 30 }, { 300, 150, 180, 30 }, { 1200, -1100, 220, 40 }, { 60, -1700, 180, 30 },
-		{ -760, 1240, 180, 25 }, { -1850, -1300, 180, 35 }, { -700, -1150, 180, 30 }, { -80, -20, 200, 35 },
-		{ -1640, -300, 180, 30 }, { -1700, 880, 180, 30 },
-	}) do
-		table.insert(W.hills, { h[1], h[2], h[3], h[4], "Grass" })
-	end
 	-- Meseta de la Colina Alta y cantera
 	W.plateau = { x = 1072, z = -228, top = 16, rTop = 120, rBase = 260 }
 	W.quarry = { x = 1250, z = -1670 }
@@ -89,6 +72,16 @@ return function(b, MB)
 		Refugio = { 870, 1190, 530, 830 },
 	}
 
+	-- Suelo de cada zona (material del terreno): Grass = césped corto, LeafyGrass = maleza alta,
+	-- Ground = tierra, Mud = barro. Las zonas que no aparecen usan césped corto.
+	W.zoneGround = {
+		Granjas = "Grass", Penal = "Ground", ZonaProhibida = "Mud", Antena = "Ground", Estacion = "Ground",
+		Refugio = "Ground", Cantera = "Rock", Megatienda = "Ground", Motel = "LeafyGrass", Ladera = "LeafyGrass",
+		LagoSereno = "LeafyGrass", Comisaria = "Grass",
+	}
+	-- Zonas que no se aplanan a altura 0 (la meseta y la cantera tienen su propio relieve)
+	W.zoneNoFlat = { ColinaAlta = true }
+
 	-- =================================================================
 	--  Utilidades
 	-- =================================================================
@@ -109,30 +102,13 @@ return function(b, MB)
 		local qx, qz = ax + dx * t - px, az + dz * t - pz
 		return math.sqrt(qx * qx + qz * qz)
 	end
+	W.segDist = segDist
 	function W.polylineDist(px, pz, pts)
 		local best = math.huge
 		for i = 1, #pts - 1 do
 			best = math.min(best, segDist(px, pz, pts[i][1], pts[i][2], pts[i + 1][1], pts[i + 1][2]))
 		end
 		return best
-	end
-
-	-- Altura del suelo (colinas, montañas y meseta; el resto es llano a 0)
-	function W.groundY(x, z)
-		local y = 0
-		for _, h in ipairs(W.hills) do
-			local dx, dz = x - h[1], z - h[2]
-			local d2 = dx * dx + dz * dz
-			if d2 < h[3] * h[3] then
-				y = math.max(y, h[4] - h[3] + math.sqrt(h[3] * h[3] - d2))
-			end
-		end
-		local p = W.plateau
-		local d = math.sqrt((x - p.x) ^ 2 + (z - p.z) ^ 2)
-		if d < p.rBase then
-			y = math.max(y, d <= p.rTop and p.top or p.top * (p.rBase - d) / (p.rBase - p.rTop))
-		end
-		return y
 	end
 
 	function W.inZone(x, z, margin)
@@ -173,6 +149,19 @@ return function(b, MB)
 	for _, p in ipairs(W.coast) do
 		table.insert(landPoly, p)
 	end
+	-- ¿Está dentro del contorno de tierra (sin contar la distancia a la costa)?
+	function W.inLandPoly(x, z)
+		local inside = false
+		local j = #landPoly
+		for i = 1, #landPoly do
+			local xi, zi, xj, zj = landPoly[i][1], landPoly[i][2], landPoly[j][1], landPoly[j][2]
+			if ((zi > z) ~= (zj > z)) and (x < (xj - xi) * (z - zi) / (zj - zi) + xi) then
+				inside = not inside
+			end
+			j = i
+		end
+		return inside
+	end
 	function W.isLand(x, z, margin)
 		local inside = false
 		local j = #landPoly
@@ -195,95 +184,6 @@ return function(b, MB)
 		end
 	end
 	W.eachSegment = eachSegment
-
-	-- =================================================================
-	--  Terreno: mar, tierra, costa, montañas, meseta, cantera, ríos y lagos
-	-- =================================================================
-	function W.buildTerrain()
-		b:terrainSettings({
-			colors = {
-				Grass = { 74, 98, 58 }, LeafyGrass = { 64, 88, 50 }, Ground = { 96, 84, 66 }, Mud = { 76, 66, 52 },
-				Rock = { 104, 104, 100 }, Sand = { 186, 174, 140 },
-			},
-			water = { color = { 44, 70, 68 }, transparency = 0.35, waveSize = 0.12, waveSpeed = 6, reflectance = 0.3 },
-		})
-		for _, r in ipairs(W.sea) do
-			local cx, cz, sx, sz = (r[1] + r[2]) / 2, (r[3] + r[4]) / 2, r[2] - r[1], r[4] - r[3]
-			b:terrain({ mat = "Sand", pos = { cx, -31, cz }, size = { sx, 6, sz } })
-			b:terrain({ mat = "Water", pos = { cx, -16, cz }, size = { sx, 24, sz } })
-		end
-		for _, r in ipairs(W.land) do
-			b:terrain({ mat = "Grass", pos = { (r[1] + r[2]) / 2, -12, (r[3] + r[4]) / 2 }, size = { r[2] - r[1], 24, r[4] - r[3] } })
-		end
-		-- Costa: tierra detrás de cada tramo, franja de arena y playa en cuesta hacia el mar
-		eachSegment(W.coast, function(a, c, len, yaw, mx, mz, ux, uz)
-			local nx, nz = uz, -ux
-			if nx + nz < 0 then
-				nx, nz = -nx, -nz
-			end
-			b:terrain({ mat = "Grass", pos = { mx - nx * 225, -12, mz - nz * 225 }, size = { len + 120, 24, 450 }, rot = { 0, yaw, 0 } })
-			b:terrain({ mat = "Sand", pos = { mx - nx * 15, -2, mz - nz * 15 }, size = { len + 60, 4, 30 }, rot = { 0, yaw, 0 } })
-			-- La cuña sube hacia +Z local: se gira para que la parte alta quede en tierra
-			local wedgeYaw = yaw
-			local lzx, lzz = math.sin(math.rad(yaw)), math.cos(math.rad(yaw))
-			if lzx * nx + lzz * nz > 0 then
-				wedgeYaw = yaw + 180
-			end
-			b:terrain({ shape = "Wedge", mat = "Sand", pos = { mx + nx * 120, -18, mz + nz * 120 }, size = { len + 60, 36, 240 }, rot = { 0, wedgeYaw, 0 } })
-		end)
-		for i = 2, #W.coast - 1 do
-			b:terrain({ shape = "Ball", mat = "Sand", pos = { W.coast[i][1], -70, W.coast[i][2] }, radius = 70 })
-		end
-		for _, h in ipairs(W.hills) do
-			b:terrain({ shape = "Ball", mat = h[5], pos = { h[1], h[4] - h[3], h[2] }, radius = h[3] })
-		end
-		local p = W.plateau
-		for i = 1, 8 do
-			b:terrain({ shape = "Cylinder", mat = "Grass", pos = { p.x, 2 * i - 1, p.z }, radius = p.rBase - (i - 1) * 20, height = 2 })
-		end
-		-- Cantera: roca y terrazas excavadas con una charca en el fondo
-		local q = W.quarry
-		b:terrain({ shape = "Cylinder", mat = "Rock", pos = { q.x, -30, q.z }, radius = 190, height = 60 })
-		for i, t in ipairs({ { 170, -12 }, { 130, -24 }, { 90, -36 }, { 55, -48 } }) do
-			b:terrain({ shape = "Cylinder", mat = "Air", pos = { q.x, (t[2] + 40) / 2, q.z }, radius = t[1], height = 40 - t[2] })
-			-- Rampa de roca para bajar a cada terraza
-			local a = math.rad(i * 95)
-			local r = t[1] + 10
-			b:terrain({ shape = "Wedge", mat = "Rock", pos = { q.x + math.cos(a) * r, t[2] + 6, q.z + math.sin(a) * r }, size = { 14, 12, 36 }, rot = { 0, -math.deg(a), 0 } })
-		end
-		b:terrain({ shape = "Cylinder", mat = "Water", pos = { q.x, -51, q.z }, radius = 38, height = 10 })
-
-		-- Ríos: orillas de barro, cauce excavado y agua
-		for _, river in ipairs(W.rivers) do
-			eachSegment(river.points, function(a, c, len, yaw, mx, mz)
-				b:terrain({ mat = "Mud", pos = { mx, -2, mz }, size = { len + 6, 4, river.width + 20 }, rot = { 0, yaw, 0 } })
-			end)
-			for i = 2, #river.points - 1 do
-				local pt = river.points[i]
-				b:terrain({ shape = "Cylinder", mat = "Mud", pos = { pt[1], -2, pt[2] }, radius = river.width / 2 + 10, height = 4 })
-			end
-		end
-		for _, l in ipairs(W.lakes) do
-			b:terrain({ shape = "Cylinder", mat = "Mud", pos = { l[1], -2, l[2] }, radius = l[3] + 12, height = 4 })
-		end
-		for _, mat in ipairs({ "Air", "Water" }) do
-			local y, h = (mat == "Air") and 18 or -10, (mat == "Air") and 44 or 12
-			for _, river in ipairs(W.rivers) do
-				local n = #river.points
-				eachSegment(river.points, function(a, c, len, yaw, mx, mz, ux, uz, i)
-					local extra = (river.mouth and i == n - 1) and 70 or 0
-					b:terrain({ mat = mat, pos = { mx + ux * extra / 2, y, mz + uz * extra / 2 }, size = { len + extra, h, river.width }, rot = { 0, yaw, 0 } })
-				end)
-				for i = 2, n - 1 do
-					local pt = river.points[i]
-					b:terrain({ shape = "Cylinder", mat = mat, pos = { pt[1], y, pt[2] }, radius = river.width / 2, height = h })
-				end
-			end
-			for _, l in ipairs(W.lakes) do
-				b:terrain({ shape = "Cylinder", mat = mat, pos = { l[1], (mat == "Air") and 18 or -11, l[2] }, radius = l[3], height = (mat == "Air") and 44 or 14 })
-			end
-		end
-	end
 
 	-- =================================================================
 	--  Carreteras con puentes, vía del tren y límites
@@ -366,60 +266,8 @@ return function(b, MB)
 	end
 
 	-- =================================================================
-	--  Bosque, rocas y coches abandonados
+	--  Coches abandonados en las carreteras
 	-- =================================================================
-	local OAK = { { 72, 100, 56 }, { 86, 114, 62 }, { 64, 90, 50 }, { 98, 112, 60 }, { 120, 110, 62 } }
-	local PINE = { { 48, 82, 56 }, { 56, 90, 60 }, { 42, 74, 50 } }
-	function W.tree(x, z, kind, s)
-		local y = W.groundY(x, z) - 0.6
-		if kind == "pino" then
-			local c = PINE[math.floor(W.rand() * #PINE) + 1]
-			b:cylinder({ name = "Tronco", length = 16 * s, diameter = 1.3 * s, pos = { x, y + 8 * s, z }, color = { 86, 64, 48 }, mat = "Wood" })
-			for i, t in ipairs({ { 10, 7 }, { 7.5, 11 }, { 4.6, 15 } }) do
-				b:cylinder({ name = "Copa", length = 3.6 * s, diameter = t[1] * s, pos = { x, y + t[2] * s, z }, color = c, mat = "LeafyGrass", folder = "Decoracion" })
-			end
-		elseif kind == "muerto" then
-			b:cylinder({ name = "Tronco", length = 12 * s, diameter = 1.2 * s, pos = { x, y + 6 * s, z }, color = { 104, 94, 84 }, mat = "Wood" })
-			P.segment(b, { x, y + 8 * s, z }, { x + 3 * s, y + 12 * s, z + 1 * s }, 0.5 * s, { 104, 94, 84 }, "Wood", "Decoracion")
-			P.segment(b, { x, y + 9 * s, z }, { x - 2.4 * s, y + 13 * s, z - 1.6 * s }, 0.45 * s, { 104, 94, 84 }, "Wood", "Decoracion")
-		else
-			local c = OAK[math.floor(W.rand() * #OAK) + 1]
-			b:cylinder({ name = "Tronco", length = 10 * s, diameter = 1.7 * s, pos = { x, y + 5 * s, z }, color = { 90, 70, 52 }, mat = "Wood" })
-			b:ball({ name = "Copa", diameter = 10 * s, pos = { x, y + 12 * s, z }, color = c, mat = "LeafyGrass", folder = "Decoracion" })
-			b:ball({ name = "Copa", diameter = 7.5 * s, pos = { x + 3 * s, y + 10 * s, z + 1.2 * s }, color = P.lighter(c, 8), mat = "LeafyGrass", folder = "Decoracion" })
-			b:ball({ name = "Copa", diameter = 7 * s, pos = { x - 2.6 * s, y + 10.6 * s, z - 1.6 * s }, color = P.darker(c, 8), mat = "LeafyGrass", folder = "Decoracion" })
-		end
-	end
-
-	-- Densidad del bosque: hay zonas espesas y claros
-	local function density(x, z)
-		return 0.45 + 0.3 * math.sin(x / 310 + 1.3) * math.cos(z / 270 - 0.4) + 0.25 * math.sin((x + z) / 530)
-	end
-
-	function W.buildForest(target)
-		local placed, tries = 0, 0
-		while placed < target and tries < target * 8 do
-			tries = tries + 1
-			local x, z = W.range(-2000, 1560), W.range(-2000, 1500)
-			local d = density(x, z)
-			if W.rand() < d * d * 1.3 and W.isLand(x, z, 60) and not W.inZone(x, z, 14) and not W.nearRoad(x, z, 10) and not W.nearWater(x, z, 16) and W.groundY(x, z) < 70 then
-				local r = W.rand()
-				local kind = (r < 0.08) and "muerto" or ((z < -900 or r < 0.3) and "pino" or "roble")
-				W.tree(x, z, kind, W.range(0.9, 1.5))
-				placed = placed + 1
-			end
-		end
-		-- Rocas sueltas
-		for _ = 1, 160 do
-			local x, z = W.range(-2000, 1500), W.range(-2000, 1450)
-			if W.isLand(x, z, 40) and not W.inZone(x, z, 10) and not W.nearRoad(x, z, 6) and not W.nearWater(x, z, 10) then
-				local s = W.range(2, 6)
-				b:ball({ name = "Roca", diameter = s, pos = { x, W.groundY(x, z) + s * 0.2, z }, color = { 112, 110, 104 }, mat = "Slate" })
-			end
-		end
-		return placed
-	end
-
 	local RUST = { { 120, 70, 50 }, { 90, 96, 100 }, { 140, 120, 90 }, { 70, 80, 70 }, { 150, 60, 50 }, { 60, 70, 90 }, { 40, 40, 42 } }
 	function W.buildCars()
 		local count = 0

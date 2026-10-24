@@ -1,0 +1,55 @@
+{
+  "name": "MundoAbierto",
+  "tree": {
+    "$className": "DataModel",
+    "ServerStorage": {
+      "MundoAbierto": {
+        "$path": "src/MundoAbierto"
+      },
+      "ModelosMundo": {
+        "$className": "Folder",
+        "$ignoreUnknownInstances": true,
+        "Pino": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        },
+        "Roble": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        },
+        "Abedul": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        },
+        "Muerto": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        },
+        "Arbusto": {
+          "$className": "Folder",
+          "$ignoreUnknownInstances": true
+        }
+      }
+    },
+    "ReplicatedStorage": {
+      "ClimaConfig": {
+        "$path": "src/Clima/ClimaConfig.luau"
+      }
+    },
+    "ServerScriptService": {
+      "ClimaServidor": {
+        "$path": "src/Clima/ClimaServidor.server.luau"
+      },
+      "IniciarMundo": {
+        "$path": "src/IniciarMundo.server.luau"
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "ClimaCliente": {
+          "$path": "src/Clima/ClimaCliente.client.luau"
+        }
+      }
+    }
+  }
+}

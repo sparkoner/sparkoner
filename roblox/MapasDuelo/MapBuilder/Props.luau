@@ -341,8 +341,7 @@ return function(MB)
 	-- =================================================================
 	--  Vehículos
 	-- =================================================================
-	-- wrecked = true: coche abandonado (oxidado, con musgo, cristales sucios y luces apagadas)
-	function P.car(g, pos, rotY, color, wrecked)
+	function P.car(g, pos, rotY, color)
 		local c = g:at(pos, rotY)
 		local paint = color or { 190, 50, 50 }
 		local trim = { 34, 34, 38 }
@@ -365,13 +364,8 @@ return function(MB)
 			end
 		end
 		for _, x in ipairs({ -1.9, 1.9 }) do
-			c:box({ name = "Faro", size = { 1.2, 0.5, 0.15 }, pos = { x, 2.2, -5.62 }, color = wrecked and { 120, 120, 110 } or { 255, 244, 214 }, mat = wrecked and "Glass" or "Neon", folder = "Decoracion" })
-			c:box({ name = "Piloto", size = { 1.2, 0.5, 0.15 }, pos = { x, 2.2, 5.62 }, color = wrecked and { 90, 30, 30 } or { 210, 30, 30 }, mat = wrecked and "Glass" or "Neon", folder = "Decoracion" })
-		end
-		if wrecked then
-			c:box({ name = "Musgo", size = { 4.4, 0.25, 2.6 }, pos = { 0.3, 5.3, 1.6 }, color = { 74, 104, 56 }, mat = "LeafyGrass", folder = "Decoracion" })
-			c:box({ name = "Musgo", size = { 3.6, 0.25, 2 }, pos = { -0.4, 3.05, -3.8 }, color = { 84, 110, 60 }, mat = "LeafyGrass", folder = "Decoracion" })
-			c:box({ name = "Oxido", size = { 5.45, 0.8, 4 }, pos = { 0, 1.2, 2 }, color = { 120, 70, 44 }, mat = "CorrodedMetal", folder = "Decoracion" })
+			c:box({ name = "Faro", size = { 1.2, 0.5, 0.15 }, pos = { x, 2.2, -5.62 }, color = { 255, 244, 214 }, mat = "Neon", folder = "Decoracion" })
+			c:box({ name = "Piloto", size = { 1.2, 0.5, 0.15 }, pos = { x, 2.2, 5.62 }, color = { 210, 30, 30 }, mat = "Neon", folder = "Decoracion" })
 		end
 		c:box({ name = "Matricula", size = { 1.8, 0.6, 0.1 }, pos = { 0, 1.2, 6.03 }, color = { 240, 240, 236 }, folder = "Decoracion" })
 	end
@@ -809,12 +803,7 @@ return function(MB)
 					h:box({ name = "Dintel", size = { 3.8, 0.5, 0.45 }, pos = { x, 6.25, front - 0.15 }, color = trim, folder = "Decoracion" })
 				else
 					h:box({ name = "Marco", size = { 2.8, 3.4, 0.3 }, pos = { x, y, front - 0.1 }, color = trim, folder = "Decoracion" })
-					h:box({ name = "Ventana", size = { 2.2, 2.8, 0.34 }, pos = { x, y, front - 0.12 }, color = o.ruined and { 28, 32, 30 } or o.lit and ((f + c) % 3 == 0 and { 50, 56, 70 } or { 255, 206, 140 }) or (o.glass or { 66, 86, 108 }), mat = (o.lit and not o.ruined and (f + c) % 3 ~= 0) and "Neon" or "Glass", transparency = (o.lit and not o.ruined) and 0.3 or 0.1, folder = "Decoracion" })
-					if o.ruined and (f * 5 + c * 3) % 4 == 0 then
-						for _, r in ipairs({ 35, -35 }) do
-							h:box({ name = "Tablon", size = { 3.4, 0.5, 0.15 }, pos = { x, y, front - 0.35 }, rot = { 0, 0, r }, color = { 120, 96, 70 }, mat = "WoodPlanks", folder = "Decoracion" })
-						end
-					end
+					h:box({ name = "Ventana", size = { 2.2, 2.8, 0.34 }, pos = { x, y, front - 0.12 }, color = o.lit and ((f + c) % 3 == 0 and { 50, 56, 70 } or { 255, 206, 140 }) or (o.glass or { 66, 86, 108 }), mat = (o.lit and (f + c) % 3 ~= 0) and "Neon" or "Glass", transparency = o.lit and 0.3 or 0.1, folder = "Decoracion" })
 					if o.shutters then
 						for _, sx in ipairs({ -1.85, 1.85 }) do
 							h:box({ name = "Contraventana", size = { 0.9, 3.2, 0.2 }, pos = { x + sx, y, front - 0.15 }, color = o.shutters, mat = "WoodPlanks", folder = "Decoracion" })
@@ -837,9 +826,6 @@ return function(MB)
 			for y = 1.8, H - 0.6, 1.25 do
 				h:cylinder({ name = "Tronco", axis = "x", length = w + 0.6, diameter = 0.9, pos = { 0, y, front + 0.3 }, color = darker(wall, 10), mat = "Wood", folder = "Decoracion" })
 			end
-		end
-		if o.ruined then
-			P.overgrowth(h, w, H, front - 0.2)
 		end
 		if o.fireEscape and floors > 1 then
 			for f = 2, floors do
@@ -1277,15 +1263,7 @@ return function(MB)
 		h:box({ name = "Techo", size = { W, 0.6, D }, pos = { 0, top + 0.3, 0 }, color = trim, mat = "Concrete" })
 		local rc = o.roofColor or { 120, 70, 60 }
 		h:wedge({ name = "Tejado", size = { W + 1.6, 4, D / 2 + 1 }, pos = { 0, top + 2.6, -D / 4 - 0.5 }, color = rc, mat = "RoofShingles" })
-		if o.ruined then
-			-- Media cubierta hundida: escombros en el piso de arriba
-			h:wedge({ name = "Tejado", size = { W / 2 + 0.8, 4, D / 2 + 1 }, pos = { -W / 4 - 0.4, top + 2.6, D / 4 + 0.5 }, rot = { 0, 180, 0 }, color = rc, mat = "RoofShingles" })
-			P.debris(h, { W / 4, FH + 0.6, D / 4 }, 1.2)
-			P.overgrowth(h, W, top, -D / 2 - 0.2)
-			P.overgrowth(h:at({ 0, 0, 0 }, 180), W, top, -D / 2 - 0.2)
-		else
-			h:wedge({ name = "Tejado", size = { W + 1.6, 4, D / 2 + 1 }, pos = { 0, top + 2.6, D / 4 + 0.5 }, rot = { 0, 180, 0 }, color = rc, mat = "RoofShingles" })
-		end
+		h:wedge({ name = "Tejado", size = { W + 1.6, 4, D / 2 + 1 }, pos = { 0, top + 2.6, D / 4 + 0.5 }, rot = { 0, 180, 0 }, color = rc, mat = "RoofShingles" })
 		-- Molduras
 		for _, z in ipairs({ -D / 2 - 0.1, D / 2 + 0.1 }) do
 			h:box({ name = "Moldura", size = { W + 0.4, 0.6, 0.3 }, pos = { 0, FH + 0.3, z }, color = trim, folder = "Decoracion" })
@@ -1460,268 +1438,5 @@ return function(MB)
 		end
 		local ladderH = math.floor((h + 2) / 2) * 2
 		t:truss({ name = "Escalera", size = { 2, ladderH, 2 }, pos = { 0, ladderH / 2, 5.2 }, color = { 100, 80, 60 } })
-	end
-	-- =================================================================
-	--  Mundo abandonado (estilo apocalipsis)
-	-- =================================================================
-	-- Musgo y enredaderas sobre una fachada de ancho w y alto H (cara mirando a -Z local, en z)
-	function P.overgrowth(g, w, H, z)
-		local green = { { 70, 98, 54 }, { 84, 112, 60 }, { 62, 88, 50 } }
-		for i, m in ipairs({ { -0.35, 0.12, 0.3, 0.2 }, { 0.3, 0.05, 0.25, 0.14 }, { 0.05, 0.6, 0.18, 0.22 } }) do
-			g:box({ name = "Musgo", size = { w * m[3], H * m[4], 0.15 }, pos = { w * m[1], H * m[2] + H * m[4] / 2, z }, color = green[i], mat = "LeafyGrass", folder = "Decoracion", shadow = false })
-		end
-		for i = 0, 3 do
-			local x = -w / 2 + (i + 0.5) * w / 4 + ((i % 2 == 0) and 0.8 or -0.6)
-			local len = H * (0.25 + (i % 3) * 0.15)
-			g:box({ name = "Enredadera", size = { 0.7, len, 0.2 }, pos = { x, H - len / 2, z - 0.05 }, color = green[(i % 3) + 1], mat = "LeafyGrass", folder = "Decoracion", shadow = false })
-		end
-	end
-
-	-- Montón de escombros
-	function P.debris(g, pos, scale)
-		local d = g:at(pos, 0)
-		local s = scale or 1
-		local pieces = { { 0, 0, 0, 4, 1.4, 3, 12 }, { 1.8, 0.6, 1, 2.4, 1, 2, -20 }, { -1.6, 0.4, -0.8, 2.6, 1.2, 1.6, 35 }, { 0.6, 1.2, -1.2, 1.6, 0.8, 1.4, 60 }, { -0.4, 0.2, 1.8, 3, 0.6, 1, -45 } }
-		for i, p in ipairs(pieces) do
-			d:box({ name = "Escombro", size = { p[4] * s, p[5] * s, p[6] * s }, pos = { p[1] * s, p[2] * s + p[5] * s / 2, p[3] * s }, rot = { (i % 2) * 8, p[7], (i % 3) * 6 }, color = (i % 2 == 0) and { 150, 146, 138 } or { 130, 92, 74 }, mat = (i % 2 == 0) and "Concrete" or "Brick" })
-		end
-	end
-
-	-- Muro de chapas oxidadas a lo largo de una línea (para comunidades amuralladas)
-	function P.metalWall(g, a, b, height, colors)
-		local dx, dz = b[1] - a[1], b[3] - a[3]
-		local len = math.sqrt(dx * dx + dz * dz)
-		local yaw = math.deg(math.atan2(-dz, dx))
-		local w = g:at({ (a[1] + b[1]) / 2, a[2] or 0, (a[3] + b[3]) / 2 }, yaw)
-		local palette = colors or { { 120, 84, 62 }, { 96, 100, 96 }, { 140, 104, 70 }, { 84, 92, 100 } }
-		local n = math.max(1, math.floor(len / 8))
-		for i = 0, n - 1 do
-			local x = -len / 2 + (i + 0.5) * len / n
-			local hh = height - (i % 3) * 0.6
-			w:box({ name = "Chapa", size = { len / n + 0.2, hh, 0.4 }, pos = { x, hh / 2, (i % 2) * 0.3 }, color = palette[(i % #palette) + 1], mat = "CorrodedMetal" })
-		end
-		for i = 0, n do
-			local x = -len / 2 + i * len / n
-			w:box({ name = "Poste", size = { 0.6, height + 0.6, 0.6 }, pos = { x, (height + 0.6) / 2, -0.4 }, color = { 70, 60, 52 }, mat = "Wood", folder = "Decoracion" })
-		end
-	end
-
-	-- Empalizada de tablones con puntas
-	function P.plankWall(g, a, b, height, color)
-		local dx, dz = b[1] - a[1], b[3] - a[3]
-		local len = math.sqrt(dx * dx + dz * dz)
-		local yaw = math.deg(math.atan2(-dz, dx))
-		local w = g:at({ (a[1] + b[1]) / 2, a[2] or 0, (a[3] + b[3]) / 2 }, yaw)
-		local wood = color or { 120, 92, 64 }
-		local n = math.max(1, math.floor(len / 6))
-		for i = 0, n - 1 do
-			local x = -len / 2 + (i + 0.5) * len / n
-			local hh = height + (i % 2) * 0.8
-			w:box({ name = "Tablones", size = { len / n + 0.1, hh, 0.8 }, pos = { x, hh / 2, 0 }, color = (i % 3 == 0) and darker(wood, 20) or wood, mat = "WoodPlanks" })
-			w:wedge({ name = "Punta", size = { len / n, 1.6, 0.4 }, pos = { x, hh + 0.8, -0.2 }, color = darker(wood, 10), mat = "WoodPlanks", folder = "Decoracion" })
-			w:wedge({ name = "Punta", size = { len / n, 1.6, 0.4 }, pos = { x, hh + 0.8, 0.2 }, rot = { 0, 180, 0 }, color = darker(wood, 10), mat = "WoodPlanks", folder = "Decoracion" })
-		end
-	end
-
-	-- Tienda de campaña (a lo largo de X local)
-	function P.tent(g, pos, rotY, color, w, d, h)
-		local t = g:at(pos, rotY)
-		w, d, h = w or 10, d or 7, h or 5
-		local c = color or { 92, 110, 70 }
-		t:wedge({ name = "Tienda", size = { w, h, d / 2 }, pos = { 0, h / 2, -d / 4 }, color = c, mat = "Fabric" })
-		t:wedge({ name = "Tienda", size = { w, h, d / 2 }, pos = { 0, h / 2, d / 4 }, rot = { 0, 180, 0 }, color = darker(c, 12), mat = "Fabric" })
-	end
-
-	-- Hoguera con luz
-	function P.campfire(g, pos, withLight)
-		local f = g:at(pos, 0)
-		for i = 0, 5 do
-			local a = math.rad(i * 60)
-			f:ball({ name = "Piedra", diameter = 1.1, pos = { math.cos(a) * 1.6, 0.4, math.sin(a) * 1.6 }, color = { 110, 108, 104 }, mat = "Slate", folder = "Decoracion" })
-		end
-		for _, r in ipairs({ 0, 60, 120 }) do
-			f:box({ name = "Lena", size = { 2.6, 0.5, 0.5 }, pos = { 0, 0.5, 0 }, rot = { 0, r, 18 }, color = { 80, 58, 40 }, mat = "Wood", folder = "Decoracion" })
-		end
-		local fire = f:ball({ name = "Fuego", diameter = 1.4, pos = { 0, 1.2, 0 }, color = { 255, 140, 40 }, mat = "Neon", transparency = 0.15, folder = "Decoracion", shadow = false })
-		if withLight ~= false then
-			MB.light(fire, "Point", { color = { 255, 150, 70 }, brightness = 1.8, range = 18, shadows = true })
-		end
-	end
-
-	-- Helicóptero militar estrellado
-	function P.helicopterWreck(g, pos, rotY)
-		local hcp = g:at(pos, rotY)
-		local olive = { 74, 82, 60 }
-		hcp:box({ name = "Fuselaje", size = { 7, 6, 16 }, pos = { 0, 3.2, 0 }, rot = { 0, 0, 14 }, color = olive, mat = "Metal" })
-		hcp:wedge({ name = "Morro", size = { 6.6, 4, 4 }, pos = { 0.6, 2.6, -9.6 }, rot = { 0, 180, 14 }, color = { 40, 48, 44 }, mat = "Glass" })
-		hcp:box({ name = "Cola", size = { 2, 2, 16 }, pos = { 1.2, 4, 15 }, rot = { 6, 0, 14 }, color = olive, mat = "Metal" })
-		hcp:box({ name = "Aleta", size = { 0.5, 5, 3 }, pos = { 1.6, 6, 22.4 }, color = olive, mat = "Metal", folder = "Decoracion" })
-		for i, r in ipairs({ 20, 110 }) do
-			hcp:box({ name = "Pala", size = { 26 - i * 6, 0.3, 1.2 }, pos = { -0.8, 6.8 - i * 0.6, 0 }, rot = { 0, r, 12 + i * 6 }, color = { 40, 40, 40 }, mat = "Metal", folder = "Decoracion" })
-		end
-		P.debris(hcp, { 6, 0, -4 }, 0.8)
-		hcp:ball({ name = "Humo", diameter = 6, pos = { 0, 11, -2 }, color = { 60, 60, 60 }, transparency = 0.5, folder = "Decoracion", shadow = false })
-	end
-
-	-- Vía de tren entre dos puntos: balasto, dos raíles y traviesas opcionales
-	function P.rails(g, a, b, sleepers)
-		local dx, dz = b[1] - a[1], b[3] - a[3]
-		local len = math.sqrt(dx * dx + dz * dz)
-		local yaw = math.deg(math.atan2(-dz, dx))
-		local r = g:at({ (a[1] + b[1]) / 2, a[2] or 0, (a[3] + b[3]) / 2 }, yaw)
-		r:box({ name = "Balasto", size = { len, 0.6, 10 }, pos = { 0, 0.3, 0 }, color = { 110, 104, 96 }, mat = "Pebble" })
-		for _, z in ipairs({ -2.4, 2.4 }) do
-			r:box({ name = "Rail", size = { len, 0.5, 0.5 }, pos = { 0, 0.95, z }, color = { 120, 96, 80 }, mat = "CorrodedMetal" })
-		end
-		if sleepers then
-			for x = -len / 2 + 2, len / 2 - 2, 4 do
-				r:box({ name = "Traviesa", size = { 1.2, 0.3, 7.6 }, pos = { x, 0.7, 0 }, color = { 90, 70, 52 }, mat = "Wood", folder = "Decoracion" })
-			end
-		end
-	end
-
-	-- Vagón de tren sobre la vía (largo a lo largo de X local). kind: "vagon", "cisterna", "plataforma", "locomotora"
-	function P.trainCar(g, pos, rotY, kind, color)
-		local t = g:at(pos, rotY)
-		local c = color or { 130, 70, 50 }
-		t:box({ name = "Bastidor", size = { 30, 1, 8 }, pos = { 0, 2.6, 0 }, color = { 40, 40, 42 }, mat = "Metal" })
-		for _, x in ipairs({ -11, -8, 8, 11 }) do
-			for _, z in ipairs({ -2.4, 2.4 }) do
-				t:cylinder({ name = "Rueda", axis = "z", length = 0.6, diameter = 2.4, pos = { x, 1.6, z }, color = { 50, 46, 44 }, mat = "Metal", folder = "Decoracion" })
-			end
-		end
-		if kind == "cisterna" then
-			t:cylinder({ name = "Cisterna", axis = "x", length = 28, diameter = 8, pos = { 0, 7.1, 0 }, color = c, mat = "Metal" })
-		elseif kind == "plataforma" then
-			P.crate(t, { -6, 3.1, 0 }, 5, 10)
-			P.crate(t, { 2, 3.1, 0.5 }, 4.5, -5)
-			t:box({ name = "Tubos", size = { 10, 2.4, 6 }, pos = { 9, 4.3, 0 }, color = { 140, 136, 130 }, mat = "Metal" })
-		elseif kind == "locomotora" then
-			t:box({ name = "Motor", size = { 20, 8, 7 }, pos = { 4, 7.1, 0 }, color = c, mat = "Metal" })
-			t:box({ name = "Cabina", size = { 8, 11, 8 }, pos = { -10, 8.6, 0 }, color = c, mat = "Metal" })
-			t:box({ name = "Ventanas", size = { 8.1, 2.4, 8.1 }, pos = { -10, 11, 0 }, color = { 30, 34, 36 }, mat = "Glass", folder = "Decoracion" })
-			t:box({ name = "Franja", size = { 30.2, 1, 8.2 }, pos = { 0, 4.6, 0 }, color = { 230, 190, 50 }, folder = "Decoracion" })
-		else
-			t:box({ name = "Vagon", size = { 30, 10, 8 }, pos = { 0, 8.1, 0 }, color = c, mat = "CorrodedMetal" })
-			t:box({ name = "Puerta", size = { 6, 8, 0.3 }, pos = { 0, 7.6, -4.1 }, color = darker(c, 30), mat = "Metal", folder = "Decoracion" })
-			t:box({ name = "Puerta", size = { 6, 8, 0.3 }, pos = { 0, 7.6, 4.1 }, color = darker(c, 30), mat = "Metal", folder = "Decoracion" })
-		end
-	end
-
-	-- Torre de radio de celosía con balizas
-	function P.radioTower(g, pos, height)
-		local t = g:at(pos, 0)
-		local h = height or 100
-		local steel = { 170, 60, 50 }
-		local white = { 230, 230, 226 }
-		for _, c in ipairs({ { -1, -1 }, { 1, -1 }, { 1, 1 }, { -1, 1 } }) do
-			P.segment(t, { c[1] * 7, 0, c[2] * 7 }, { c[1] * 1.5, h, c[2] * 1.5 }, 0.8, steel, "Metal")
-		end
-		for k = 1, 8 do
-			local y = k * h / 9
-			local half = 7 - 5.5 * y / h
-			for i, c in ipairs({ { -1, -1, 1, -1 }, { 1, -1, 1, 1 }, { 1, 1, -1, 1 }, { -1, 1, -1, -1 } }) do
-				P.segment(t, { c[1] * half, y, c[2] * half }, { c[3] * half, y, c[4] * half }, 0.4, (k % 2 == 0) and white or steel, "Metal", "Decoracion")
-			end
-		end
-		local beacon = t:ball({ name = "Baliza", diameter = 2, pos = { 0, h + 1.5, 0 }, color = { 255, 60, 50 }, mat = "Neon", folder = "Decoracion" })
-		MB.light(beacon, "Point", { color = { 255, 60, 50 }, brightness = 2, range = 30 })
-		t:box({ name = "Base", size = { 18, 1, 18 }, pos = { 0, 0.5, 0 }, color = { 150, 148, 142 }, mat = "Concrete" })
-	end
-
-	function P.solarPanel(g, pos, rotY)
-		local s = g:at(pos, rotY)
-		s:box({ name = "Soporte", size = { 0.4, 3, 0.4 }, pos = { 0, 1.5, 0 }, color = { 120, 120, 126 }, mat = "Metal" })
-		s:box({ name = "Panel", size = { 6, 0.3, 4 }, pos = { 0, 3.2, 0 }, rot = { 25, 0, 0 }, color = { 40, 60, 110 }, mat = "Glass", reflectance = 0.2 })
-	end
-
-	-- Bancal de huerto con plantas
-	function P.gardenBed(g, pos, rotY, w, d)
-		local b = g:at(pos, rotY)
-		w, d = w or 10, d or 4
-		b:box({ name = "Bancal", size = { w, 1, d }, pos = { 0, 0.5, 0 }, color = { 110, 80, 56 }, mat = "WoodPlanks" })
-		b:box({ name = "Tierra", size = { w - 0.6, 0.2, d - 0.6 }, pos = { 0, 1.05, 0 }, color = { 70, 52, 40 }, mat = "Ground", folder = "Decoracion" })
-		for i = 0, math.floor(w / 1.6) - 1 do
-			b:ball({ name = "Planta", diameter = 1.2, pos = { -w / 2 + 1 + i * 1.6, 1.6, (i % 2 == 0) and -0.7 or 0.7 }, color = (i % 3 == 0) and { 200, 60, 50 } or { 80, 140, 60 }, mat = "LeafyGrass", folder = "Decoracion" })
-		end
-	end
-
-	function P.silo(g, pos, radius, height, color)
-		local s = g:at(pos, 0)
-		local c = color or { 176, 178, 180 }
-		s:cylinder({ name = "Silo", length = height, diameter = radius * 2, pos = { 0, height / 2, 0 }, color = c, mat = "CorrodedMetal" })
-		s:ball({ name = "Cupula", diameter = radius * 2, pos = { 0, height, 0 }, color = darker(c, 20), mat = "Metal" })
-		for y = 6, height - 4, 8 do
-			s:cylinder({ name = "Aro", length = 0.4, diameter = radius * 2 + 0.3, pos = { 0, y, 0 }, color = darker(c, 40), mat = "Metal", folder = "Decoracion" })
-		end
-	end
-
-	-- Molino de viento de granja
-	function P.windmill(g, pos, rotY)
-		local m = g:at(pos, rotY)
-		local steel = { 130, 126, 120 }
-		for _, c in ipairs({ { -1, -1 }, { 1, -1 }, { 1, 1 }, { -1, 1 } }) do
-			P.segment(m, { c[1] * 3, 0, c[2] * 3 }, { c[1] * 0.6, 30, c[2] * 0.6 }, 0.4, steel, "Metal")
-		end
-		m:cylinder({ name = "Buje", axis = "z", length = 1.4, diameter = 1.6, pos = { 0, 31, -1 }, color = steel, mat = "Metal" })
-		for i = 0, 11 do
-			local a = math.rad(i * 30)
-			m:box({ name = "Aspa", size = { 0.8, 5, 0.15 }, pos = { math.cos(a) * 3.2, 31 + math.sin(a) * 3.2, -1.8 }, rot = { 0, 0, i * 30 - 90 }, color = { 190, 186, 176 }, mat = "Metal", folder = "Decoracion" })
-		end
-		m:box({ name = "Cola", size = { 0.3, 3, 5 }, pos = { 0, 31, 3 }, color = steel, mat = "Metal", folder = "Decoracion" })
-	end
-
-	-- Campo de cultivo con surcos (rectángulo x0..x1, z0..z1 a la altura y)
-	function P.cropField(g, x0, x1, z0, z1, y, color)
-		g:box({ name = "Campo", size = { x1 - x0, 0.3, z1 - z0 }, pos = { (x0 + x1) / 2, y + 0.15, (z0 + z1) / 2 }, color = { 104, 84, 60 }, mat = "Ground", folder = "Decoracion" })
-		for z = z0 + 3, z1 - 3, 6 do
-			g:box({ name = "Surco", size = { x1 - x0 - 4, 1.6, 1.6 }, pos = { (x0 + x1) / 2, y + 1, z }, color = color or { 150, 140, 70 }, mat = "LeafyGrass", folder = "Decoracion", shadow = false })
-		end
-	end
-
-	-- Avioneta estrellada
-	function P.planeWreck(g, pos, rotY)
-		local p = g:at(pos, rotY)
-		local white = { 220, 220, 214 }
-		p:cylinder({ name = "Fuselaje", axis = "z", length = 22, diameter = 5, pos = { 0, 2.6, 0 }, rot = { -4, 0, 0 }, color = white, mat = "Metal" })
-		p:box({ name = "Ala", size = { 30, 0.6, 5 }, pos = { 0, 3.4, -2 }, rot = { 0, 0, 6 }, color = white, mat = "Metal" })
-		p:box({ name = "Cola", size = { 0.5, 5, 4 }, pos = { 0, 5.6, 10 }, color = { 180, 50, 40 }, mat = "Metal", folder = "Decoracion" })
-		p:box({ name = "Estabilizador", size = { 10, 0.4, 3 }, pos = { 0, 3.6, 10 }, color = white, mat = "Metal", folder = "Decoracion" })
-		p:box({ name = "Cabina", size = { 4, 1.6, 4 }, pos = { 0, 4.6, -6 }, color = { 40, 50, 56 }, mat = "Glass", folder = "Decoracion" })
-		P.debris(p, { 8, 0, 6 }, 0.6)
-	end
-
-	function P.tractor(g, pos, rotY, color)
-		local t = g:at(pos, rotY)
-		local c = color or { 60, 120, 60 }
-		t:box({ name = "Chasis", size = { 4, 3, 9 }, pos = { 0, 3, 0 }, color = c, mat = "Metal" })
-		t:box({ name = "Cabina", size = { 4.4, 4.4, 4 }, pos = { 0, 6.6, 2 }, color = { 40, 46, 44 }, mat = "Glass", transparency = 0.3 })
-		t:box({ name = "Techo", size = { 4.8, 0.4, 4.6 }, pos = { 0, 9, 2 }, color = c, mat = "Metal", folder = "Decoracion" })
-		for _, x in ipairs({ -2.6, 2.6 }) do
-			t:cylinder({ name = "Rueda", axis = "x", length = 1.6, diameter = 6, pos = { x, 3, 2.6 }, color = { 30, 30, 32 }, mat = "Rubber" })
-			t:cylinder({ name = "Rueda", axis = "x", length = 1, diameter = 3.2, pos = { x, 1.6, -3 }, color = { 30, 30, 32 }, mat = "Rubber" })
-		end
-		t:cylinder({ name = "Escape", length = 3, diameter = 0.4, pos = { 1.2, 6.4, -3 }, color = { 40, 40, 40 }, mat = "Metal", folder = "Decoracion" })
-	end
-
-	-- Barca de pesca varada
-	function P.boat(g, pos, rotY, color)
-		local b = g:at(pos, rotY)
-		local c = color or { 220, 220, 210 }
-		b:box({ name = "Casco", size = { 8, 3, 18 }, pos = { 0, 1.5, 0 }, color = c, mat = "WoodPlanks" })
-		b:wedge({ name = "Proa", size = { 8, 3, 5 }, pos = { 0, 1.5, -11.5 }, rot = { 0, 180, 0 }, color = c, mat = "WoodPlanks" })
-		b:box({ name = "Cabina", size = { 5, 4, 5 }, pos = { 0, 5, 3 }, color = { 200, 80, 60 }, mat = "WoodPlanks" })
-		b:box({ name = "Franja", size = { 8.1, 0.6, 18.1 }, pos = { 0, 2.6, 0 }, color = { 50, 90, 140 }, folder = "Decoracion" })
-	end
-
-	-- Cinta transportadora de cantera entre dos puntos (a la altura del punto b)
-	function P.conveyor(g, a, b)
-		P.segment(g, a, b, 2.4, { 60, 60, 62 }, "Rubber")
-		local n = 4
-		for i = 1, n - 1 do
-			local t = i / n
-			local x, y, z = a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t
-			g:box({ name = "Pata", size = { 1, y - 1, 1 }, pos = { x, (y - 1) / 2, z }, color = { 200, 160, 50 }, mat = "Metal" })
-		end
 	end
 end

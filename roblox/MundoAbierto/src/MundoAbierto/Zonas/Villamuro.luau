@@ -45,6 +45,7 @@ return function(b, MB, W)
 		P.tent(b, { t[1], 0, t[2] }, 15, { 92, 110, 70 })
 	end
 	P.campfire(b, { -1590, 0, -700 }, true)
+	P.fireBarrel(b, { -1581, 0, -708 })
 	local ax, az = -1650, -555
 	for i = 0, 23 do
 		local a = math.rad(i * 15)

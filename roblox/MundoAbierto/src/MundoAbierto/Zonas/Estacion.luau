@@ -38,6 +38,7 @@ return function(b, MB, W)
 		P.tent(b, { t[1], 0, t[2] }, i * 30, { 110, 100, 80 })
 	end
 	P.campfire(b, { -268, 0, -238 }, true)
+	P.fireBarrel(b, { -259, 0, -246 })
 	P.crate(b, { -300, 0, -300 }, 4.5, 20)
 	P.crate(b, { -296, 0, -296 }, 3.5, -10)
 	-- Cartel de bienvenida
