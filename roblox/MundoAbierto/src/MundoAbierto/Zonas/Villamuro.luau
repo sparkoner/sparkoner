@@ -46,6 +46,7 @@ return function(b, MB, W)
 	end
 	P.campfire(b, { -1590, 0, -700 }, true)
 	P.fireBarrel(b, { -1581, 0, -708 })
+	P.tiendaCaza(b, { -1607, 0, -694 }, -90, "Armería de Villamuro")
 	local ax, az = -1650, -555
 	for i = 0, 23 do
 		local a = math.rad(i * 15)

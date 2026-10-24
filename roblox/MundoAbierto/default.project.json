@@ -34,6 +34,9 @@
     "ReplicatedStorage": {
       "ClimaConfig": {
         "$path": "src/Clima/ClimaConfig.luau"
+      },
+      "CazaConfig": {
+        "$path": "src/Caza/CazaConfig.luau"
       }
     },
     "ServerScriptService": {
@@ -42,12 +45,18 @@
       },
       "IniciarMundo": {
         "$path": "src/IniciarMundo.server.luau"
+      },
+      "CazaServidor": {
+        "$path": "src/Caza/CazaServidor"
       }
     },
     "StarterPlayer": {
       "StarterPlayerScripts": {
         "ClimaCliente": {
           "$path": "src/Clima/ClimaCliente.client.luau"
+        },
+        "CazaCliente": {
+          "$path": "src/Caza/CazaCliente"
         }
       }
     }

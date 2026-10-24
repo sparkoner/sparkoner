@@ -1742,4 +1742,137 @@ return function(MB)
 			g:box({ name = "Pata", size = { 1, y - 1, 1 }, pos = { x, (y - 1) / 2, z }, color = { 200, 160, 50 }, mat = "Metal" })
 		end
 	end
+
+	--[[
+		Tienda de caza y pesca: cabaña de troncos con mostrador, armero, cañas, trofeos, cámara de cebos
+		y un pesadero fuera donde se vende lo cazado. Lleva dos ProximityPrompt con la etiqueta "TiendaCaza"
+		(los usa CazaServidor): "Comprar" en el mostrador y "Vender" en el pesadero.
+		El frente mira a -Z (local); la cabaña ocupa 22 x 16 studs hacia +Z.
+	]]
+	function P.tiendaCaza(g, pos, rotY, nombre)
+		local t = g:at(pos, rotY)
+		local CollectionService = game:GetService("CollectionService")
+		local tronco, oscuro, tejado = { 122, 86, 58 }, { 84, 60, 42 }, { 66, 56, 50 }
+		t:box({ name = "Suelo", size = { 22, 1, 16 }, pos = { 0, 0.5, 8 }, color = oscuro, mat = "WoodPlanks" })
+		-- Paredes de troncos (troncos horizontales apilados)
+		for i = 0, 6 do
+			local y = 1.6 + i * 1.5
+			t:cylinder({ name = "Tronco", axis = "x", length = 22.6, diameter = 1.5, pos = { 0, y, 15.5 }, color = (i % 2 == 0) and tronco or darker(tronco, 10), mat = "Wood" })
+			for _, x in ipairs({ -10.6, 10.6 }) do
+				t:cylinder({ name = "Tronco", axis = "z", length = 16.6, diameter = 1.5, pos = { x, y, 8 }, color = (i % 2 == 0) and darker(tronco, 8) or tronco, mat = "Wood" })
+			end
+			if i >= 5 or i <= 1 then
+				-- Frente: ventana de mostrador entre medias
+				t:cylinder({ name = "Tronco", axis = "x", length = 22.6, diameter = 1.5, pos = { 0, y, 0.5 }, color = (i % 2 == 0) and tronco or darker(tronco, 10), mat = "Wood" })
+			else
+				for _, x in ipairs({ -8.2, 8.2 }) do
+					t:cylinder({ name = "Tronco", axis = "x", length = 6.2, diameter = 1.5, pos = { x, y, 0.5 }, color = tronco, mat = "Wood" })
+				end
+			end
+		end
+		-- Tejado a dos aguas con alero
+		t:wedge({ name = "Tejado", size = { 24.5, 4.5, 9.5 }, pos = { 0, 13.3, 3.25 }, color = tejado, mat = "WoodPlanks" })
+		t:wedge({ name = "Tejado", size = { 24.5, 4.5, 9.5 }, pos = { 0, 13.3, 12.75 }, rot = { 0, 180, 0 }, color = tejado, mat = "WoodPlanks" })
+		for _, x in ipairs({ -11.3, 11.3 }) do
+			t:wedge({ name = "Hastial", size = { 0.6, 4.5, 8 }, pos = { x, 13.3, 4 }, color = tronco, mat = "WoodPlanks" })
+			t:wedge({ name = "Hastial", size = { 0.6, 4.5, 8 }, pos = { x, 13.3, 12 }, rot = { 0, 180, 0 }, color = tronco, mat = "WoodPlanks" })
+		end
+		-- Porche delante del mostrador
+		t:box({ name = "Porche", size = { 14, 0.4, 5.5 }, pos = { 0, 10.4, -2.4 }, rot = { -12, 0, 0 }, color = tejado, mat = "WoodPlanks" })
+		for _, x in ipairs({ -6.6, 6.6 }) do
+			t:cylinder({ name = "Poste", length = 9.6, diameter = 0.7, pos = { x, 5, -4.6 }, color = oscuro, mat = "Wood" })
+		end
+		-- Mostrador
+		t:box({ name = "Mostrador", size = { 10, 3.6, 1.6 }, pos = { 0, 2.8, 0.8 }, color = oscuro, mat = "WoodPlanks" })
+		local encimera = t:box({ name = "Encimera", size = { 10.6, 0.3, 2.4 }, pos = { 0, 4.75, 0.6 }, color = { 150, 112, 76 }, mat = "Wood" })
+		local comprar = Instance.new("ProximityPrompt")
+		comprar.Name = "Comprar"
+		comprar.ActionText = "Comprar"
+		comprar.ObjectText = nombre or "Tienda de caza y pesca"
+		comprar.MaxActivationDistance = 10
+		comprar.RequiresLineOfSight = false
+		comprar:SetAttribute("Accion", "Comprar")
+		comprar:SetAttribute("Tienda", nombre or "Tienda de caza y pesca")
+		comprar.Parent = encimera
+		CollectionService:AddTag(comprar, "TiendaCaza")
+		-- Caja registradora, balanza y cajas de munición sobre el mostrador
+		t:box({ name = "Caja", size = { 1.4, 1, 1.2 }, pos = { 3.4, 5.4, 0.7 }, color = { 60, 60, 64 }, mat = "Metal", folder = "Decoracion" })
+		for i, c in ipairs({ { 170, 60, 40 }, { 60, 90, 140 }, { 180, 150, 50 }, { 70, 110, 60 } }) do
+			t:box({ name = "CajaMunicion", size = { 0.9, 0.6, 0.6 }, pos = { -4 + i * 1.05, 5.2, 0.4 }, color = c, mat = "SmoothPlastic", folder = "Decoracion" })
+		end
+		local cartelBase = t:box({ name = "Cartel", size = { 12, 2.2, 0.3 }, pos = { 0, 12.3, -0.5 }, color = { 60, 44, 32 }, mat = "WoodPlanks" })
+		MB.sign(cartelBase, "CAZA Y PESCA", { color = { 236, 214, 160 }, font = "SpecialElite", pps = 30 })
+		-- Trofeo: cornamenta sobre el cartel
+		t:box({ name = "Placa", size = { 1.4, 1.4, 0.3 }, pos = { 0, 14.2, -0.4 }, color = { 92, 66, 46 }, mat = "Wood", folder = "Decoracion" })
+		for _, k in ipairs({ 1, -1 }) do
+			P.rod(t, { 0.3 * k, 14.5, -0.6 }, { 1.4 * k, 15.6, -0.7 }, 0.18, { 214, 198, 166 }, "Wood", "Decoracion")
+			P.rod(t, { 1.4 * k, 15.6, -0.7 }, { 1.9 * k, 16.5, -0.6 }, 0.14, { 214, 198, 166 }, "Wood", "Decoracion")
+			P.rod(t, { 1.0 * k, 15.2, -0.7 }, { 1.0 * k, 16.2, -0.9 }, 0.12, { 214, 198, 166 }, "Wood", "Decoracion")
+		end
+		-- Dentro: armero con rifles, cañas apoyadas, estanterías y un pez disecado
+		t:box({ name = "Armero", size = { 8, 6, 0.6 }, pos = { -4, 5, 14.6 }, color = { 92, 66, 46 }, mat = "WoodPlanks", folder = "Decoracion" })
+		for i = 0, 3 do
+			local x = -6.8 + i * 1.8
+			t:box({ name = "Rifle", size = { 0.25, 4.6, 0.35 }, pos = { x, 5, 14.1 }, color = { 40, 40, 42 }, mat = "Metal", folder = "Decoracion" })
+			t:box({ name = "Culata", size = { 0.3, 1.6, 0.55 }, pos = { x, 3.1, 14.05 }, color = { 104, 66, 40 }, mat = "Wood", folder = "Decoracion" })
+		end
+		for i = 0, 4 do
+			P.rod(t, { 2 + i * 0.9, 1.1, 14.4 }, { 2.6 + i * 0.9, 10, 14.9 }, 0.12, ({ { 196, 170, 100 }, { 40, 40, 44 }, { 60, 110, 160 } })[i % 3 + 1], "SmoothPlastic", "Decoracion")
+		end
+		for _, y in ipairs({ 3, 5.5 }) do
+			t:box({ name = "Estante", size = { 0.8, 0.2, 10 }, pos = { 9.4, y, 8 }, color = { 150, 112, 76 }, mat = "Wood", folder = "Decoracion" })
+			for k = 0, 5 do
+				t:box({ name = "Producto", size = { 0.6, 0.8, 0.9 }, pos = { 9.4, y + 0.5, 3.6 + k * 1.7 }, color = ({ { 160, 60, 40 }, { 60, 80, 120 }, { 200, 180, 90 } })[k % 3 + 1], folder = "Decoracion" })
+			end
+		end
+		t:box({ name = "Tabla", size = { 0.3, 1.6, 4 }, pos = { -9.7, 7.5, 8 }, color = { 92, 66, 46 }, mat = "Wood", folder = "Decoracion" })
+		t:blob({ name = "PezDisecado", size = { 0.5, 1.1, 3.2 }, pos = { -9.4, 7.5, 8 }, color = { 150, 140, 110 }, mat = "SmoothPlastic", folder = "Decoracion" })
+		local lampara = t:ball({ name = "Lampara", diameter = 0.8, pos = { 0, 9.6, 3 }, color = { 255, 220, 160 }, mat = "Neon", folder = "Decoracion" })
+		MB.light(lampara, "Point", { color = { 255, 214, 160 }, brightness = 1.4, range = 20, shadows = true })
+		-- Cámara de cebos y barriles
+		t:box({ name = "Nevera", size = { 2.4, 3.4, 2 }, pos = { 8.2, 2.7, 3.2 }, color = { 220, 224, 226 }, mat = "Metal" })
+		P.drum(t, { -13, 0, -2 }, { 90, 70, 50 })
+		P.drum(t, { -14.6, 0, 0.6 }, { 70, 90, 60 })
+		P.bench(t, { -6, 0, -6 }, 0, { 120, 90, 60 })
+		-- Pesadero: dos postes, un travesaño con ganchos y una báscula: aquí se vende lo cazado
+		for _, z in ipairs({ -3, 5 }) do
+			t:cylinder({ name = "Poste", length = 9, diameter = 0.8, pos = { 14.5, 4.5, z }, color = oscuro, mat = "Wood" })
+		end
+		local travesano = t:cylinder({ name = "Travesano", axis = "z", length = 9.4, diameter = 0.7, pos = { 14.5, 8.8, 1 }, color = oscuro, mat = "Wood" })
+		for _, z in ipairs({ -1, 1.2, 3.2 }) do
+			t:cylinder({ name = "Gancho", length = 1.4, diameter = 0.12, pos = { 14.5, 7.8, z }, color = { 120, 120, 124 }, mat = "Metal", folder = "Decoracion" })
+		end
+		t:box({ name = "Bascula", size = { 2.4, 0.3, 2.4 }, pos = { 14.5, 1.2, 1 }, color = { 110, 110, 114 }, mat = "Metal" })
+		t:box({ name = "Bascula", size = { 0.5, 1, 0.5 }, pos = { 14.5, 0.5, 1 }, color = { 80, 80, 84 }, mat = "Metal" })
+		local vender = Instance.new("ProximityPrompt")
+		vender.Name = "Vender"
+		vender.ActionText = "Vender la mochila"
+		vender.ObjectText = "Pesadero"
+		vender.MaxActivationDistance = 12
+		vender.RequiresLineOfSight = false
+		vender.KeyboardKeyCode = Enum.KeyCode.F
+		vender:SetAttribute("Accion", "Vender")
+		vender:SetAttribute("Tienda", nombre or "Tienda de caza y pesca")
+		vender.Parent = travesano
+		CollectionService:AddTag(vender, "TiendaCaza")
+		local cartel = t:box({ name = "Cartel", size = { 0.3, 1.4, 5 }, pos = { 14.1, 6.2, 1 }, color = { 60, 44, 32 }, mat = "WoodPlanks" })
+		MB.sign(cartel, "PESADERO", { face = "Left", color = { 236, 214, 160 }, font = "SpecialElite", pps = 30 })
+		return encimera
+	end
+
+	-- Embarcadero de madera sobre pilotes (para pescar), desde "pos" hacia -Z local
+	function P.embarcadero(g, pos, rotY, largo, alturaAgua)
+		local e = g:at(pos, rotY)
+		local madera = { 120, 92, 64 }
+		e:box({ name = "Tablero", size = { 5, 0.5, largo }, pos = { 0, 0.5, -largo / 2 }, color = madera, mat = "WoodPlanks" })
+		for z = 0, largo, 6 do
+			for _, x in ipairs({ -2.2, 2.2 }) do
+				local alto = 0.5 - (alturaAgua or -8) + 4
+				e:cylinder({ name = "Pilote", length = alto, diameter = 0.7, pos = { x, 0.5 - alto / 2, -z }, color = darker(madera, 30), mat = "Wood" })
+			end
+		end
+		for _, x in ipairs({ -2.4, 2.4 }) do
+			e:box({ name = "Barandilla", size = { 0.25, 0.25, largo * 0.4 }, pos = { x, 3, -largo * 0.2 }, color = madera, mat = "Wood", folder = "Decoracion" })
+		end
+	end
 end

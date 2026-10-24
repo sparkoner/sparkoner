@@ -1,8 +1,8 @@
 """Genera ConstruirMundo.luau: un único script para pegar en la barra de comandos de Roblox Studio.
 
-Instala el mundo abierto (ServerStorage.MundoAbierto) y el clima (ReplicatedStorage.ClimaConfig,
-ServerScriptService.ClimaServidor y StarterPlayerScripts.ClimaCliente), pone las piezas en
-Workspace.Mundo y genera el terreno.
+Instala el mundo abierto (ServerStorage.MundoAbierto), el clima (ClimaConfig, ClimaServidor, ClimaCliente)
+y la caza y la pesca (CazaConfig, CazaServidor, CazaCliente), pone las piezas en Workspace.Mundo y genera
+el terreno.
 Uso: python3 build_bundle.py
 """
 import os
@@ -24,10 +24,12 @@ def long_string(text):
 
 
 MODULES = ['Motor', 'Piezas', 'Datos', 'Terreno', 'Vegetacion']
+CAZA_SERVIDOR = ['Modelos', 'Animales', 'Armas', 'Pesca', 'Economia']
+CAZA_CLIENTE = ['Pantalla', 'Efectos']
 zones = sorted(f[:-5] for f in os.listdir(os.path.join(SRC, 'MundoAbierto', 'Zonas')) if f.endswith('.luau'))
 L = [
     '-- Pega TODO este texto en la barra de comandos de Roblox Studio (Ver > Barra de comandos) y pulsa Enter.',
-    '-- Instala el mundo abierto y su clima y genera el terreno. Tarda un par de minutos.',
+    '-- Instala el mundo abierto, su clima y la caza y la pesca, y genera el terreno. Tarda un par de minutos.',
     '-- OJO: borra el terreno y la Baseplate de este lugar. Úsalo en un lugar nuevo.',
     '-- Archivo generado por build_bundle.py a partir de src/.',
     '',
@@ -47,6 +49,16 @@ L += [
     'local CLIMA_CONFIG = ' + long_string(read('Clima', 'ClimaConfig.luau')),
     'local CLIMA_SERVIDOR = ' + long_string(read('Clima', 'ClimaServidor.server.luau')),
     'local CLIMA_CLIENTE = ' + long_string(read('Clima', 'ClimaCliente.client.luau')),
+    'local CAZA_CONFIG = ' + long_string(read('Caza', 'CazaConfig.luau')),
+    'local CAZA_SERVIDOR = ' + long_string(read('Caza', 'CazaServidor', 'init.server.luau')),
+    'local CAZA_CLIENTE = ' + long_string(read('Caza', 'CazaCliente', 'init.client.luau')),
+    'local CAZA_SERVIDOR_MODULOS, CAZA_CLIENTE_MODULOS = {}, {}',
+]
+for m in CAZA_SERVIDOR:
+    L.append(f'CAZA_SERVIDOR_MODULOS["{m}"] = ' + long_string(read('Caza', 'CazaServidor', m + '.luau')))
+for m in CAZA_CLIENTE:
+    L.append(f'CAZA_CLIENTE_MODULOS["{m}"] = ' + long_string(read('Caza', 'CazaCliente', m + '.luau')))
+L += [
     '',
     'local function crear(padre, clase, nombre, fuente)',
     '\tlocal viejo = padre:FindFirstChild(nombre)',
@@ -75,6 +87,17 @@ L += [
     'crear(ServerScriptService, "Script", "ClimaServidor", CLIMA_SERVIDOR)',
     'local jugadorScripts = StarterPlayer:FindFirstChild("StarterPlayerScripts") or Instance.new("StarterPlayerScripts", StarterPlayer)',
     'crear(jugadorScripts, "LocalScript", "ClimaCliente", CLIMA_CLIENTE)',
+    '',
+    '-- Caza, pesca y armas',
+    'crear(ReplicatedStorage, "ModuleScript", "CazaConfig", CAZA_CONFIG)',
+    'local cazaServidor = crear(ServerScriptService, "Script", "CazaServidor", CAZA_SERVIDOR)',
+    'for nombre, fuente in pairs(CAZA_SERVIDOR_MODULOS) do',
+    '\tcrear(cazaServidor, "ModuleScript", nombre, fuente)',
+    'end',
+    'local cazaCliente = crear(jugadorScripts, "LocalScript", "CazaCliente", CAZA_CLIENTE)',
+    'for nombre, fuente in pairs(CAZA_CLIENTE_MODULOS) do',
+    '\tcrear(cazaCliente, "ModuleScript", nombre, fuente)',
+    'end',
     '',
     '-- Carpeta para tus propios modelos 3D (árboles de la Toolbox...). Si ya existe no se toca',
     'local modelos = ServerStorage:FindFirstChild("ModelosMundo")',
@@ -123,3 +146,49 @@ L += [
 out = os.path.join(HERE, 'ConstruirMundo.luau')
 open(out, 'w', encoding='utf-8').write('\n'.join(L))
 print('Generado', out, '-', len(zones), 'zonas,', os.path.getsize(out) // 1024, 'KB')
+
+# InstalarCaza.luau: solo la caza, la pesca y las armas (para instalarlas o actualizarlas sin rehacer el mundo)
+C = [
+    '-- Pega TODO este texto en la barra de comandos de Roblox Studio y pulsa Enter.',
+    '-- Instala (o actualiza) solo la caza, la pesca y las armas. Las tiendas de caza vienen con el mundo',
+    '-- (ConstruirMundo.luau). Archivo generado por build_bundle.py a partir de src/.',
+    '',
+    'local ReplicatedStorage = game:GetService("ReplicatedStorage")',
+    'local ServerScriptService = game:GetService("ServerScriptService")',
+    'local StarterPlayer = game:GetService("StarterPlayer")',
+    'local CAZA_CONFIG = ' + long_string(read('Caza', 'CazaConfig.luau')),
+    'local CAZA_SERVIDOR = ' + long_string(read('Caza', 'CazaServidor', 'init.server.luau')),
+    'local CAZA_CLIENTE = ' + long_string(read('Caza', 'CazaCliente', 'init.client.luau')),
+    'local CAZA_SERVIDOR_MODULOS, CAZA_CLIENTE_MODULOS = {}, {}',
+]
+for m in CAZA_SERVIDOR:
+    C.append(f'CAZA_SERVIDOR_MODULOS["{m}"] = ' + long_string(read('Caza', 'CazaServidor', m + '.luau')))
+for m in CAZA_CLIENTE:
+    C.append(f'CAZA_CLIENTE_MODULOS["{m}"] = ' + long_string(read('Caza', 'CazaCliente', m + '.luau')))
+C += [
+    '',
+    'local function crear(padre, clase, nombre, fuente)',
+    '\tlocal viejo = padre:FindFirstChild(nombre)',
+    '\tif viejo then viejo:Destroy() end',
+    '\tlocal s = Instance.new(clase)',
+    '\ts.Name = nombre',
+    '\ts.Source = fuente',
+    '\ts.Parent = padre',
+    '\treturn s',
+    'end',
+    'crear(ReplicatedStorage, "ModuleScript", "CazaConfig", CAZA_CONFIG)',
+    'local cazaServidor = crear(ServerScriptService, "Script", "CazaServidor", CAZA_SERVIDOR)',
+    'for nombre, fuente in pairs(CAZA_SERVIDOR_MODULOS) do',
+    '\tcrear(cazaServidor, "ModuleScript", nombre, fuente)',
+    'end',
+    'local jugadorScripts = StarterPlayer:FindFirstChild("StarterPlayerScripts") or Instance.new("StarterPlayerScripts", StarterPlayer)',
+    'local cazaCliente = crear(jugadorScripts, "LocalScript", "CazaCliente", CAZA_CLIENTE)',
+    'for nombre, fuente in pairs(CAZA_CLIENTE_MODULOS) do',
+    '\tcrear(cazaCliente, "ModuleScript", nombre, fuente)',
+    'end',
+    'print("[Caza] Instalada la caza, la pesca y las armas. Pulsa Jugar para probarla.")',
+    '',
+]
+out2 = os.path.join(HERE, 'InstalarCaza.luau')
+open(out2, 'w', encoding='utf-8').write('\n'.join(C))
+print('Generado', out2, '-', os.path.getsize(out2) // 1024, 'KB')

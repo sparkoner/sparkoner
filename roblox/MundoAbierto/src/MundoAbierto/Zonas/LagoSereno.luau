@@ -40,5 +40,8 @@ return function(b, MB, W)
 	P.car(b, { cx + 70, 0.2, cz - 50 }, 30, { 40, 40, 42 }, true)
 	P.bench(b, { cx + 20, 0, cz + 10 }, 90, { 110, 90, 70 })
 	P.campfire(b, { cx - 20, 0, cz + 10 }, true)
+	-- Tienda de caza y pesca a la orilla del lago, con embarcadero para pescar
+	P.tiendaCaza(b, { -1096, 0, -12 }, -90, "Tienda de caza y pesca del lago")
+	P.embarcadero(b, { -1108, 0, -36 }, 90, 42, -10)
 	W.spawn(cx + 10, cz - 20, 0)
 end

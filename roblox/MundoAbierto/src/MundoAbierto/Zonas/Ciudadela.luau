@@ -59,6 +59,7 @@ return function(b, MB, W)
 	b:box({ name = "Chapas", size = { 10, 2, 8 }, pos = { -370, 1, 780 }, color = { 120, 90, 70 }, mat = "CorrodedMetal" })
 	P.campfire(b, { -150, 0, 1100 }, true)
 	P.fireBarrel(b, { -141, 0, 1093 })
+	P.tiendaCaza(b, { -152, 0, 1119 }, 0, "Tienda de caza de la Ciudadela")
 	for k = 0, 3 do
 		P.bench(b, { -170 + k * 9, 0, 1090 }, 0, { 120, 90, 60 })
 	end
