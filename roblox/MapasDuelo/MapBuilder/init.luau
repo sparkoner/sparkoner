@@ -56,15 +56,41 @@ function MapBuilder.new(name)
 	return self
 end
 
+local TOP_LEVEL = { Spawns = true, Terreno = true, Limites = true }
+
 function Builder:folder(name)
-	local folder = self.folders[name]
+	-- Con zone() las piezas van a Zonas/<zona>/<carpeta>; spawns, terreno y límites siempre arriba
+	local key = (self.zoneName and not TOP_LEVEL[name]) and (self.zoneName .. "/" .. name) or name
+	local folder = self.folders[key]
 	if not folder then
 		folder = Instance.new("Folder")
 		folder.Name = name
-		folder.Parent = self.model
-		self.folders[name] = folder
+		folder.Parent = (key ~= name) and self.zoneFolder or self.model
+		self.folders[key] = folder
 	end
 	return folder
+end
+
+-- Agrupa lo que se construye a continuación en Zonas/<name> (nil para volver a la raíz)
+function Builder:zone(name)
+	if not name then
+		self.zoneName, self.zoneFolder = nil, nil
+		return
+	end
+	local zones = self.folders.Zonas
+	if not zones then
+		zones = Instance.new("Folder")
+		zones.Name = "Zonas"
+		zones.Parent = self.model
+		self.folders.Zonas = zones
+	end
+	local folder = zones:FindFirstChild(name)
+	if not folder then
+		folder = Instance.new("Model")
+		folder.Name = name
+		folder.Parent = zones
+	end
+	self.zoneName, self.zoneFolder = name, folder
 end
 
 -- Posición en grados. Con symmetric() todo se repite reflejado en X (x -> -x).
@@ -221,6 +247,86 @@ function Builder:bounds(minX, maxX, minZ, maxZ, height)
 	}
 	for _, wall in ipairs(walls) do
 		self:part("Part", { name = "Limite", size = wall[1], pos = wall[2], transparency = 1, shadow = false, folder = "Limites" })
+	end
+end
+
+-- Punto de aparición real (SpawnLocation neutral) para mundos abiertos: Roblox lo usa al reaparecer
+function Builder:spawnLocation(pos, yaw)
+	local part = self:part("SpawnLocation", {
+		name = "Aparicion",
+		size = { 6, 1, 6 },
+		pos = pos,
+		rot = { 0, yaw or 0, 0 },
+		transparency = 1,
+		collide = false,
+		shadow = false,
+		folder = "Spawns",
+	})
+	part.Neutral = true
+	part.Duration = 5
+	part.CanQuery = false
+	part.CanTouch = false
+	part:SetAttribute("Team", "Mundo")
+	return part
+end
+
+-- =====================================================================
+--  Terreno
+--  Se guarda como piezas invisibles en la carpeta "Terreno" y se convierte en terreno de verdad
+--  (hierba, agua, roca...) al cargar el mapa. Se aplica en orden: lo de después pisa lo de antes,
+--  así que Air sirve para excavar (ríos, lagos, canteras).
+--  op = { shape = "Block" | "Ball" | "Cylinder" | "Wedge", mat = "Grass", pos = { x, y, z },
+--         size = { x, y, z } (Block/Wedge), radius (Ball/Cylinder), height (Cylinder), rot = { 0, giro, 0 } }
+-- =====================================================================
+local TERRAIN_CHUNK = 512
+
+function Builder:terrainPiece(shape, mat, size, pos, rot)
+	self.terrainCount = (self.terrainCount or 0) + 1
+	local part = self:part("Part", { name = "Terreno", size = size, pos = pos, rot = rot, transparency = 1, collide = false, shadow = false, folder = "Terreno" })
+	part.CanQuery = false
+	part.CanTouch = false
+	part:SetAttribute("Material", mat)
+	part:SetAttribute("Forma", shape)
+	part:SetAttribute("Orden", self.terrainCount)
+	return part
+end
+
+function Builder:terrain(op)
+	local shape = op.shape or "Block"
+	if shape == "Ball" then
+		return self:terrainPiece(shape, op.mat, { op.radius * 2, op.radius * 2, op.radius * 2 }, op.pos)
+	elseif shape == "Cylinder" then
+		return self:terrainPiece(shape, op.mat, { op.radius * 2, op.height, op.radius * 2 }, op.pos, op.rot)
+	end
+	-- Bloques y cuñas grandes se trocean (una pieza no puede medir más de 2048 y el terreno se rellena mejor por partes)
+	local sx, sy, sz = op.size[1], op.size[2], op.size[3]
+	local nx = math.ceil(sx / TERRAIN_CHUNK)
+	local nz = (shape == "Block") and math.ceil(sz / TERRAIN_CHUNK) or 1
+	local yaw = op.rot and op.rot[2] or 0
+	for i = 1, nx do
+		for k = 1, nz do
+			local px, pz = sx / nx, sz / nz
+			local ox, oz = -sx / 2 + (i - 0.5) * px, -sz / 2 + (k - 0.5) * pz
+			local wx, wz = rotateY(ox, oz, yaw)
+			self:terrainPiece(shape, op.mat, { px, sy, pz }, { op.pos[1] + wx, op.pos[2], op.pos[3] + wz }, op.rot)
+		end
+	end
+end
+
+-- Colores de los materiales del terreno y aspecto del agua
+-- settings = { colors = { Grass = { r, g, b }, ... }, water = { color, transparency, waveSize, waveSpeed, reflectance } }
+function Builder:terrainSettings(settings)
+	local folder = self:folder("Terreno")
+	for mat, color in pairs(settings.colors or {}) do
+		folder:SetAttribute("Color_" .. mat, rgb(color))
+	end
+	local w = settings.water
+	if w then
+		folder:SetAttribute("AguaColor", rgb(w.color or { 40, 70, 80 }))
+		folder:SetAttribute("AguaTransparencia", w.transparency or 0.3)
+		folder:SetAttribute("AguaOlas", w.waveSize or 0.15)
+		folder:SetAttribute("AguaVelocidad", w.waveSpeed or 8)
+		folder:SetAttribute("AguaReflejo", w.reflectance or 0.3)
 	end
 end
 
@@ -439,14 +545,63 @@ function MapBuilder.applyLighting(map)
 	end
 end
 
--- Devuelve { A = { CFrame, ... }, B = { CFrame, ... } }
+-- Convierte la carpeta "Terreno" del mapa en terreno de verdad. Devuelve true si el mapa tenía terreno.
+function MapBuilder.applyTerrain(map)
+	local folder = map:FindFirstChild("Terreno")
+	if not folder then
+		return false
+	end
+	local terrain = workspace.Terrain
+	terrain:Clear()
+	for name, value in pairs(folder:GetAttributes()) do
+		local mat = name:match("^Color_(.+)$")
+		if mat then
+			terrain:SetMaterialColor(Enum.Material[mat], value)
+		elseif name == "AguaColor" then
+			terrain.WaterColor = value
+		elseif name == "AguaTransparencia" then
+			terrain.WaterTransparency = value
+		elseif name == "AguaOlas" then
+			terrain.WaterWaveSize = value
+		elseif name == "AguaVelocidad" then
+			terrain.WaterWaveSpeed = value
+		elseif name == "AguaReflejo" then
+			terrain.WaterReflectance = value
+		end
+	end
+	local pieces = folder:GetChildren()
+	table.sort(pieces, function(a, c)
+		return (a:GetAttribute("Orden") or 0) < (c:GetAttribute("Orden") or 0)
+	end)
+	for i, part in ipairs(pieces) do
+		local mat = Enum.Material[part:GetAttribute("Material")]
+		local shape = part:GetAttribute("Forma")
+		if shape == "Ball" then
+			terrain:FillBall(part.Position, part.Size.X / 2, mat)
+		elseif shape == "Cylinder" then
+			terrain:FillCylinder(part.CFrame, part.Size.Y, part.Size.X / 2, mat)
+		elseif shape == "Wedge" then
+			terrain:FillWedge(part.CFrame, part.Size, mat)
+		else
+			terrain:FillBlock(part.CFrame, part.Size, mat)
+		end
+		if i % 20 == 0 then
+			task.wait()
+		end
+	end
+	folder:Destroy()
+	return true
+end
+
+-- Devuelve { A = { CFrame, ... }, B = { CFrame, ... } } (y otras listas si hay más equipos, como "Mundo")
 function MapBuilder.getSpawns(map)
 	local spawns = { A = {}, B = {} }
 	local folder = map:FindFirstChild("Spawns")
 	if folder then
 		for _, part in ipairs(folder:GetChildren()) do
 			local team = part:GetAttribute("Team")
-			if spawns[team] then
+			if team then
+				spawns[team] = spawns[team] or {}
 				table.insert(spawns[team], part.CFrame + Vector3.new(0, 3, 0))
 			end
 		end
@@ -454,24 +609,35 @@ function MapBuilder.getSpawns(map)
 	return spawns
 end
 
--- Pone un mapa en Workspace (quitando el anterior) y aplica su iluminación
+-- Pone en Workspace un mapa ya construido (quitando el anterior) y aplica su iluminación y su terreno
+function MapBuilder.show(map, name)
+	local current = workspace:FindFirstChild("MapaActual")
+	if current then
+		if current:GetAttribute("ConTerreno") then
+			workspace.Terrain:Clear()
+		end
+		current:Destroy()
+	end
+	map.Name = "MapaActual"
+	map:SetAttribute("Mapa", name)
+	map.Parent = workspace
+	MapBuilder.applyLighting(map)
+	if MapBuilder.applyTerrain(map) then
+		map:SetAttribute("ConTerreno", true)
+	end
+	return map, MapBuilder.getSpawns(map)
+end
+
+-- Pone un mapa guardado en ServerStorage en Workspace (quitando el anterior) y aplica su iluminación
 function MapBuilder.load(name, position)
 	local folder = game:GetService("ServerStorage"):FindFirstChild(CONTAINER_NAME)
 	local template = folder and folder:FindFirstChild(name)
 	assert(template, "No existe el mapa " .. tostring(name) .. ". Ejecuta MapBuilder.buildAll() primero.")
-	local current = workspace:FindFirstChild("MapaActual")
-	if current then
-		current:Destroy()
-	end
 	local map = template:Clone()
-	map.Name = "MapaActual"
-	map:SetAttribute("Mapa", name)
 	if position then
 		map:PivotTo(CFrame.new(position))
 	end
-	map.Parent = workspace
-	MapBuilder.applyLighting(map)
-	return map, MapBuilder.getSpawns(map)
+	return MapBuilder.show(map, name)
 end
 
 return MapBuilder

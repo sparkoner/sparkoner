@@ -1,6 +1,6 @@
 # Mapas de duelo para Roblox
 
-15 mapas detallados para duelos de tiros, en el estilo low-poly de colores suaves de tus capturas: 4 urbanos, 6 de países, 4 inspirados en juegos y películas famosos y **un mapa enorme para 50 jugadores**. Todos son **simétricos**: el equipo A aparece en un lado y el B en el otro, con el mismo terreno y la misma cobertura.
+15 mapas detallados para duelos de tiros y un mundo abierto enorme, en el estilo low-poly de colores suaves de tus capturas: 4 urbanos, 6 de países, 4 inspirados en juegos y películas famosos y **un mapa enorme para 50 jugadores**. Todos son **simétricos**: el equipo A aparece en un lado y el B en el otro, con el mismo terreno y la misma cobertura.
 
 - Usan materiales reales de Roblox: baldosa, yeso, ladrillo, asfalto, adoquín, cartón, goma, madera...
 - Iluminación **Future** con brillo (Bloom), rayos de sol y atmósfera propia en cada mapa.
@@ -45,6 +45,55 @@ Vista general y vista desde el spawn de cada mapa:
 Estas imágenes son una aproximación hecha fuera de Roblox. En Studio, la luz, los materiales y las fuentes se ven mejor.
 
 > **Sobre los mapas de juegos y películas:** están *inspirados* en esos mapas, pero tienen nombres y carteles propios. No usan los nombres ni los logos de Call of Duty, GTA ni de ninguna película, porque Roblox puede retirar los juegos que usan marcas de otros.
+
+## 🌲 Mundo abierto (estilo The Last of Us)
+
+Además de los mapas de duelo hay un **mundo abierto enorme**, de unos **4 × 4 km** (4096 × 4096 studs). Es una isla postapocalíptica invadida por la vegetación, con mar al este y al sur, ríos y lagos en los que se puede nadar, montañas en los bordes y más de 2.400 árboles. Hay 16 zonas unidas por carreteras llenas de coches abandonados, con puentes sobre los ríos y una vía de tren.
+
+![Mapa del mundo abierto](previews/MundoAbierto_mapa.jpg)
+
+| Zona | Qué hay |
+|---|---|
+| **Granjas del Norte** | Casa de la granja (se puede entrar), granero con pajar, silos, molino, tractor, campos de cultivo, espantapájaros y una pista de aterrizaje con hangar y avioneta estrellada. |
+| **Villamuro** | Pueblo de supervivientes amurallado con chapas y camiones, torres de vigilancia, calle mayor con tiendas, ayuntamiento, huertos y arena de neumáticos. |
+| **Comisaría** | Comisaría en la que se puede entrar, coches patrulla y barricadas. |
+| **Lago Sereno** | Urbanización en círculo junto al lago, con casas abandonadas (algunas se pueden recorrer) y un parque. |
+| **Penal** | Prisión con doble valla de espino, torres, dos pabellones con celdas en los que se puede entrar, patio y autobús de presos estrellado. |
+| **Zona Prohibida** | Campamento militar de cuarentena con muros de hormigón, tiendas, camiones y un helicóptero estrellado. |
+| **Motel Luna** | Motel de dos plantas con pasarela y escalera, recepción y aparcamiento. |
+| **Megatienda** | Supermercado gigante en el que se puede entrar, con estanterías, cajas, techo hundido y aparcamiento. |
+| **Estación Término** | Final de la vía con andén, estación en la que se puede entrar, vagones, locomotora, almacén y campamento. |
+| **Antena** | Torre de radio de 120 studs, antenas parabólicas, búnker y generador. |
+| **Condado** | Ciudad en ruinas con hospital (planta baja recorrible), oficinas rotas, tiendas, gasolinera, edificio derrumbado, campamento militar y un control de cuarentena amurallado. |
+| **Cantera** | Agujero de roca en terrazas con charca en el fondo, rampas, cintas transportadoras, camiones y excavadora. |
+| **Colina Alta** | Comunidad en lo alto de una meseta con empalizada, mansión, huertos, herrería y caravanas. |
+| **Ciudadela** | Barrio amurallado donde viven supervivientes: casas con luz, iglesia, huertos, placas solares, invernadero y torres. |
+| **Ladera** | Barrio de casas abandonadas junto a la carretera de la costa. |
+| **Refugio** | Fábrica junto al mar al final de la vía, con naves, chimeneas, vagones, grúa pórtico y contenedores. |
+
+Vistas de algunas zonas:
+
+![Mundo abierto](previews/MundoAbierto_vistas.jpg)
+
+### Instalar el mundo abierto
+
+> ⚠️ **Úsalo en un lugar nuevo.** El mundo pone su propio terreno y **borra el terreno que ya hubiera** en ese lugar.
+
+1. Crea un lugar nuevo en Roblox Studio (una plantilla vacía o *Baseplate*; si usas *Baseplate*, borra la pieza `Baseplate`).
+2. Abre `ConstruirMundoAbierto.luau`, cópialo entero, pégalo en **Ver → Barra de comandos** y pulsa **Enter**. Tarda alrededor de un minuto: primero crea las piezas y luego rellena el terreno.
+3. Pon **Lighting → Technology** en **Future**.
+4. Comprueba que **Workspace → StreamingEnabled** está activado (el script intenta activarlo). Así cada jugador carga solo la zona que tiene cerca y el mundo va fluido, también en móvil.
+5. Opcional: selecciona **Workspace → Terrain** y activa **Decoration** para que la hierba del terreno se mueva con el viento. Roblox no deja activarlo desde un script.
+6. **Guarda el lugar.** El mundo y el terreno quedan guardados y no hay que volver a generarlos.
+
+Los jugadores aparecen al azar en uno de los 16 puntos de aparición (`SpawnLocation`) repartidos por las zonas. Si quieres que solo aparezcan en algunos, borra los demás de `MapaActual/Spawns`.
+
+**Con Rojo:** mapea `MundoAbierto/` a `ServerStorage.MundoAbierto` (junto a `MapBuilder`) y pon `IniciarMundo.server.luau` en `ServerScriptService`. Así el mundo se construye al arrancar el servidor si no está guardado.
+
+**Editarlo:**
+- `MundoAbierto/Mundo.luau` tiene los datos del mapa: la costa, los ríos, los lagos, las montañas, las carreteras, la vía del tren y el rectángulo de cada zona. Cambia un punto y el terreno, los puentes y el bosque se recolocan solos.
+- Cada zona está en su propio archivo, dentro de `MundoAbierto/Zonas/`. En Studio aparecen en `MapaActual/Zonas`, cada una con sus carpetas `Mapa` y `Decoracion`.
+- El terreno se describe con `b:terrain({...})` (bloques, bolas, cilindros y cuñas de Grass, Water, Rock, Sand, Mud o Air para excavar).
 
 ## Instalación
 
@@ -128,5 +177,6 @@ Cada mapa tiene estas carpetas:
 - Ningún spawn queda dentro de un objeto.
 - Ningún spawn tiene visión directa de los spawns rivales, para evitar que se mate a nadie nada más aparecer (en la Gran Ciudad se comprobaron las 625 parejas de spawns).
 - `DueloMapas` se probó con 1 contra 1, 3 contra 3, 6 contra 6 y 25 contra 25: elige el mapa adecuado y nadie aparece encima de otro.
-- Todos los materiales, fuentes, clases y propiedades que se usan existen en la API oficial de Roblox.
+- Todos los materiales, fuentes, clases y propiedades que se usan existen en la API oficial de Roblox, también los métodos de terreno (`FillBlock`, `FillBall`, `FillCylinder`, `FillWedge`).
+- **Mundo abierto:** se construyó entero con la simulación (unas 26.000 piezas y 497 operaciones de terreno) y se calculó el relieve resultante. Ninguna pieza de las zonas queda enterrada en una colina ni metida en un río, ningún punto de aparición cae en el agua o dentro de un objeto, y los puentes salen solos en los 8 cruces entre carretera y río. Al cargar luego un mapa de duelo, el terreno del mundo se borra.
 - Los mapas de duelo usan entre 600 y 1.600 piezas, y la Gran Ciudad unas 5.100. Todas están ancladas y la decoración no tiene colisión, así que van ligeros también en móvil.
